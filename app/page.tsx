@@ -95,7 +95,10 @@ function AuthenticatedApp({ user }: { user: User }) {
           updatedAt: new Date().toISOString()
         })
         .link({ owner: user.id })
-    );
+    ).catch(err => {
+      console.error("Failed to create list:", err);
+      alert("Failed to create list. Please try again.");
+    });
     
     router.push(`/${slug}`);
   };
@@ -167,15 +170,18 @@ function TodoListCard({
         ...list.todos.map((todo: any) => db.tx.todos[todo.id].delete()),
         ...list.members.map((member: any) => db.tx.listMembers[member.id].delete()),
         db.tx.todoLists[list.id].delete()
-      ]);
+      ]).catch(err => {
+        console.error("Failed to delete list:", err);
+        alert("Failed to delete list. Please try again.");
+      });
     }
   };
 
   return (
-    <div className="border border-gray-300 rounded-lg p-4 hover:shadow-md transition-shadow">
+    <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow bg-white dark:bg-gray-800">
       <div className="flex justify-between items-start mb-3">
         <h3 
-          className="font-medium text-lg cursor-pointer hover:text-blue-600"
+          className="font-medium text-lg cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 text-gray-900 dark:text-white"
           onClick={() => router.push(`/${list.slug}`)}
         >
           {list.name}
@@ -183,7 +189,7 @@ function TodoListCard({
         <div className="flex space-x-1">
           <button
             onClick={() => setShowShareModal(true)}
-            className="text-gray-400 hover:text-gray-600 text-sm"
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm"
             title="Share"
           >
             🔗
@@ -191,7 +197,7 @@ function TodoListCard({
           {isOwner && (
             <button
               onClick={deleteList}
-              className="text-gray-400 hover:text-red-600 text-sm"
+              className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm"
               title="Delete"
             >
               🗑️
@@ -200,17 +206,17 @@ function TodoListCard({
         </div>
       </div>
       
-      <div className="text-sm text-gray-600 space-y-1">
+      <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
         <p>{remainingTodos} remaining, {completedTodos} completed</p>
         <p>Permission: {list.permission}</p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           {isOwner ? "You own this list" : "You're a member"}
         </p>
       </div>
 
       <button
         onClick={() => router.push(`/${list.slug}`)}
-        className="w-full mt-4 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm"
+        className="w-full mt-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-sm text-gray-900 dark:text-white"
       >
         Open List
       </button>

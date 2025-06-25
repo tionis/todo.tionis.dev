@@ -7,8 +7,14 @@ import { db } from "../../lib/db";
 import { copyToClipboard, getListUrl } from "../../lib/utils";
 import type { AppSchema } from "../../lib/db";
 
-type TodoList = InstaQLEntity<AppSchema, "todoLists", { owner: {}; todos: {}; sublists: { todos: {} }; members: { user: {} } }>;
-type Todo = InstaQLEntity<AppSchema, "todos", { sublist: {} }>;
+type TodoList = InstaQLEntity<AppSchema, "todoLists", { 
+  owner: {}; 
+  todos: { sublist?: {} }; 
+  sublists: { todos: {} }; 
+  members: { user: {} };
+  invitations: {}
+}>;
+type Todo = InstaQLEntity<AppSchema, "todos", { sublist?: {} }>;
 type Sublist = InstaQLEntity<AppSchema, "sublists", { todos: {} }>;
 
 export default function TodoListPage() {
@@ -23,9 +29,44 @@ export default function TodoListPage() {
       owner: {},
       todos: {},
       sublists: { todos: {} },
-      members: { user: {} }
+      members: { user: {} },
+      invitations: {}
     } 
   });
+
+  // Auto-accept invitations when user signs in
+  useEffect(() => {
+    if (user && data?.todoLists?.[0]) {
+      const todoList = data.todoLists[0];
+      const userEmail = user.email.toLowerCase();
+      
+      // Find pending invitation for this user
+      const pendingInvitation = todoList.invitations.find(inv => 
+        inv.email.toLowerCase() === userEmail && inv.status === 'pending'
+      );
+      
+      if (pendingInvitation) {
+        // Accept the invitation by creating a member record and updating invitation status
+        db.transact([
+          db.tx.listMembers[id()]
+            .update({
+              role: pendingInvitation.role,
+              addedAt: new Date().toISOString()
+            })
+            .link({ 
+              user: user.id,
+              list: todoList.id 
+            }),
+          db.tx.invitations[pendingInvitation.id].update({
+            status: 'accepted'
+          })
+        ]).catch(err => {
+          console.error("Failed to accept invitation:", err);
+          // Don't show alert here as this is automatic
+        });
+      }
+    }
+  }, [user, data?.todoLists]);
 
   if (authLoading || isLoading) {
     return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
@@ -47,7 +88,7 @@ export default function TodoListPage() {
 
   // Check permissions
   const isOwner = user && todoList.owner && user.id === todoList.owner.id;
-  const isMember = user && todoList.members.some(member => member.user.id === user.id);
+  const isMember = user && todoList.members.some(member => member.user?.id === user.id);
   const canRead = todoList.permission === 'public-read' || todoList.permission === 'public-write' || isOwner || (user && (todoList.permission === 'private-read' || todoList.permission === 'private-write') && isMember);
   const canWrite = todoList.permission === 'public-write' || isOwner || (user && todoList.permission === 'private-write' && isMember);
 
@@ -192,18 +233,21 @@ function TodoListApp({
 }) {
   const room = db.room("todoList", todoList.slug);
   const { peers } = db.rooms.usePresence(room, {
-    initialData: { name: user?.email || "Anonymous", userId: user?.id || null }
+    initialData: { name: user?.email || "Anonymous", userId: user?.id || undefined }
   });
   
   const numUsers = 1 + Object.keys(peers).length;
   const [showSettings, setShowSettings] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showCompletedUncategorized, setShowCompletedUncategorized] = useState(false);
 
   // Sort todos by sublist and order
   const todosWithoutSublist = todoList.todos.filter(todo => !todo.sublist);
-  const visibleTodos = todoList.hideCompleted 
+  const visibleTodos = (todoList.hideCompleted && !showCompletedUncategorized) 
     ? todosWithoutSublist.filter(todo => !todo.done)
     : todosWithoutSublist;
+
+  const completedUncategorizedTodos = todosWithoutSublist.filter(todo => todo.done);
 
   const sublists = todoList.sublists.sort((a, b) => a.order - b.order);
 
@@ -253,7 +297,7 @@ function TodoListApp({
         />
       )}
 
-      <div className="border border-gray-300 max-w-2xl w-full">
+      <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full bg-white dark:bg-gray-800">
         {canWrite && <TodoForm todoList={todoList} />}
         
         {/* Sublists */}
@@ -273,7 +317,7 @@ function TodoListApp({
         {/* Todos without sublist */}
         {visibleTodos.length > 0 && (
           <div>
-            <div className="bg-gray-50 px-3 py-2 text-sm font-medium border-b border-gray-300">
+            <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white">
               Uncategorized ({visibleTodos.filter(t => !t.done).length}/{visibleTodos.length})
             </div>
             <TodoList todos={visibleTodos} canWrite={canWrite} />
@@ -297,9 +341,12 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
         permission,
         hideCompleted,
         name,
-        updatedAt: new Date()
+        updatedAt: new Date().toISOString()
       })
-    ]);
+    ]).catch(err => {
+      console.error("Failed to update list settings:", err);
+      alert("Failed to update list settings. Please try again.");
+    });
     onClose();
   };
 
@@ -377,6 +424,8 @@ function ShareModal({
 }) {
   const [copied, setCopied] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [isInviting, setIsInviting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState("");
   
   const listUrl = getListUrl(todoList.slug);
 
@@ -386,33 +435,102 @@ function ShareModal({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      alert("Failed to copy URL");
+      console.error("Failed to copy URL");
     }
   };
 
-  const addMember = async () => {
+  const sendInvitation = async () => {
     if (!newMemberEmail.trim()) return;
     
+    setIsInviting(true);
     try {
-      // First, we need to find the user by email (this is a simplified approach)
-      // In a real app, you might want to send invitations instead
-      alert("Member invitation functionality would be implemented here. For now, users need to create accounts first.");
+      const email = newMemberEmail.trim().toLowerCase();
+      
+      // Check if user is already a member
+      const existingMember = todoList.members.find(member => 
+        member.user?.email?.toLowerCase() === email
+      );
+      
+      if (existingMember) {
+        alert("This user is already a member of this list.");
+        setIsInviting(false);
+        return;
+      }
+      
+      // Check if invitation already exists
+      const existingInvitation = todoList.invitations.find(inv => 
+        inv.email.toLowerCase() === email && inv.status === 'pending'
+      );
+      
+      if (existingInvitation) {
+        alert("An invitation has already been sent to this email.");
+        setIsInviting(false);
+        return;
+      }
+      
+      // Create invitation
+      await db.transact(
+        db.tx.invitations[id()]
+          .update({
+            email,
+            role: 'member',
+            invitedAt: new Date().toISOString(),
+            status: 'pending'
+          })
+          .link({ 
+            list: todoList.id,
+            inviter: todoList.owner?.id 
+          })
+      );
+      
+      setShowSuccess(`Invitation sent to ${email}! They can now access the list using this URL.`);
       setNewMemberEmail("");
+      
+      // Auto-hide success message
+      setTimeout(() => setShowSuccess(""), 5000);
+      
     } catch (err) {
-      alert("Failed to add member");
+      console.error("Failed to send invitation:", err);
+      alert("Failed to send invitation. Please try again.");
+    } finally {
+      setIsInviting(false);
     }
   };
 
-  const removeMember = (memberId: string) => {
-    db.transact(db.tx.listMembers[memberId].delete());
+  const revokeInvitation = async (invitationId: string) => {
+    try {
+      await db.transact(db.tx.invitations[invitationId].delete());
+    } catch (err) {
+      console.error("Failed to revoke invitation:", err);
+      alert("Failed to revoke invitation. Please try again.");
+    }
   };
+
+  const removeMember = async (memberId: string) => {
+    try {
+      await db.transact(db.tx.listMembers[memberId].delete());
+    } catch (err) {
+      console.error("Failed to remove member:", err);
+      alert("Failed to remove member. Please try again.");
+    }
+  };
+
+  const pendingInvitations = todoList.invitations.filter(inv => inv.status === 'pending');
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-md w-full mx-4">
-        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Share List</h3>
+      <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Share "{todoList.name}"</h3>
         
         <div className="space-y-4">
+          {/* Success Message */}
+          {showSuccess && (
+            <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded">
+              {showSuccess}
+            </div>
+          )}
+
+          {/* Share URL */}
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Share URL</label>
             <div className="flex space-x-2">
@@ -420,40 +538,72 @@ function ShareModal({
                 type="text"
                 value={listUrl}
                 readOnly
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
               />
               <button
                 onClick={handleCopy}
-                className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
               >
                 {copied ? "Copied!" : "Copy"}
               </button>
             </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Anyone with this URL can access the list based on its permission settings
+            </p>
           </div>
 
           {isOwner && (
             <>
+              {/* Send Invitation */}
               <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Add Member</label>
-                <div className="flex space-x-2">
-                  <input
-                    type="email"
-                    value={newMemberEmail}
-                    onChange={(e) => setNewMemberEmail(e.target.value)}
-                    placeholder="Enter email address"
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                  />
-                  <button
-                    onClick={addMember}
-                    className="px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                  >
-                    Add
-                  </button>
+                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Invite New Member</label>
+                <div className="space-y-2">
+                  <div className="flex space-x-2">
+                    <input
+                      type="email"
+                      value={newMemberEmail}
+                      onChange={(e) => setNewMemberEmail(e.target.value)}
+                      placeholder="Enter email address"
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                      disabled={isInviting}
+                    />
+                    <button
+                      onClick={sendInvitation}
+                      disabled={isInviting || !newMemberEmail.trim()}
+                      className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isInviting ? "Sending..." : "Invite"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Sends an invitation and grants access to this list
+                  </p>
                 </div>
               </div>
 
+              {/* Pending Invitations */}
+              {pendingInvitations.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Pending Invitations</label>
+                  <div className="space-y-2 max-h-24 overflow-y-auto">
+                    {pendingInvitations.map(invitation => (
+                      <div key={invitation.id} className="flex items-center justify-between py-1">
+                        <span className="text-sm text-gray-900 dark:text-white">{invitation.email}</span>
+                        <button
+                          onClick={() => revokeInvitation(invitation.id)}
+                          className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
+                        >
+                          Revoke
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Current Members */}
               <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Members</label>
+                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Current Members</label>
                 <div className="space-y-2 max-h-32 overflow-y-auto">
                   {todoList.members.map(member => (
                     <div key={member.id} className="flex items-center justify-between py-1">
@@ -473,6 +623,20 @@ function ShareModal({
               </div>
             </>
           )}
+
+          {/* Permission Info */}
+          <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              <strong className="text-gray-900 dark:text-white">Current Permission:</strong> {todoList.permission}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {todoList.permission === 'public-write' && "Anyone with the URL can view and edit"}
+              {todoList.permission === 'public-read' && "Anyone with the URL can view, but only members can edit"}
+              {todoList.permission === 'private-write' && "Only invited members can view and edit"}
+              {todoList.permission === 'private-read' && "Only invited members can view and edit"}
+              {todoList.permission === 'owner' && "Only you can access this list"}
+            </p>
+          </div>
         </div>
 
         <div className="flex justify-end mt-6">
@@ -511,20 +675,23 @@ function SublistSection({
       db.transact([
         ...sublist.todos.map(todo => db.tx.todos[todo.id].delete()),
         db.tx.sublists[sublist.id].delete()
-      ]);
+      ]).catch(err => {
+        console.error("Failed to delete sublist:", err);
+        alert("Failed to delete sublist. Please try again.");
+      });
     }
   };
 
   return (
-    <div className="border-b border-gray-300">
-      <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
-        <span className="text-sm font-medium">
+    <div className="border-b border-gray-300 dark:border-gray-600">
+      <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 flex items-center justify-between">
+        <span className="text-sm font-medium text-gray-900 dark:text-white">
           {sublist.name} ({totalCount - completedCount}/{totalCount})
         </span>
         {isOwner && (
           <button
             onClick={deleteSublist}
-            className="text-red-500 hover:text-red-700 text-xs"
+            className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
           >
             Delete
           </button>
@@ -552,10 +719,13 @@ function AddSublistForm({ todoList }: { todoList: TodoList }) {
         .update({
           name: name.trim(),
           order: maxOrder + 1,
-          createdAt: new Date()
+          createdAt: new Date().toISOString()
         })
         .link({ list: todoList.id })
-    );
+    ).catch(err => {
+      console.error("Failed to create sublist:", err);
+      alert("Failed to create sublist. Please try again.");
+    });
     
     setName("");
     setIsAdding(false);
@@ -563,10 +733,10 @@ function AddSublistForm({ todoList }: { todoList: TodoList }) {
 
   if (!isAdding) {
     return (
-      <div className="border-b border-gray-300 p-3">
+      <div className="border-b border-gray-300 dark:border-gray-600 p-3">
         <button
           onClick={() => setIsAdding(true)}
-          className="text-sm text-blue-500 hover:text-blue-700"
+          className="text-sm text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
         >
           + Add Category
         </button>
@@ -575,19 +745,19 @@ function AddSublistForm({ todoList }: { todoList: TodoList }) {
   }
 
   return (
-    <div className="border-b border-gray-300 p-3">
+    <div className="border-b border-gray-300 dark:border-gray-600 p-3">
       <form onSubmit={handleSubmit} className="flex space-x-2">
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Category name"
-          className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="flex-1 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
           autoFocus
         />
         <button
           type="submit"
-          className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+          className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
         >
           Add
         </button>
@@ -603,7 +773,7 @@ function AddSublistForm({ todoList }: { todoList: TodoList }) {
   );
 }
 
-function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist: Sublist }) {
+function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist?: Sublist }) {
   const [text, setText] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -611,35 +781,49 @@ function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist: Subl
     if (!text.trim()) return;
 
     const maxOrder = Math.max(0, ...todoList.todos.map(t => t.order || 0));
-    db.transact(
-      db.tx.todos[id()]
-        .update({
-          text: text.trim(),
-          done: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          order: maxOrder + 1
-        })
-        .link({ list: todoList.id, sublist: sublist.id })
-    );
+    
+    // Create todo with proper linking
+    let todoTx = db.tx.todos[id()]
+      .update({
+        text: text.trim(),
+        done: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        order: maxOrder + 1
+      })
+      .link({ list: todoList.id });
+
+    // Only link to sublist if it exists and has a valid ID
+    if (sublist && sublist.id) {
+      todoTx = todoTx.link({ sublist: sublist.id });
+    }
+
+    console.log("About to create todo with transaction:", todoTx);
+
+    db.transact(todoTx).catch(err => {
+      console.error("Failed to create todo:", err);
+      console.error("Error details:", JSON.stringify(err, null, 2));
+      console.error("Transaction details:", todoTx);
+      alert("Failed to create todo. Please try again.");
+    });
     
     setText("");
   };
 
   return (
-    <div className="px-3 py-2 border-b border-gray-200">
+    <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-600">
       <form onSubmit={handleSubmit} className="flex space-x-2">
         <input
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Add item..."
-          className="flex-1 px-2 py-1 text-sm outline-none"
+          className="flex-1 px-2 py-1 text-sm outline-none bg-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
         />
         {text && (
           <button
             type="submit"
-            className="text-blue-500 hover:text-blue-700 text-sm"
+            className="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm"
           >
             Add
           </button>
@@ -659,28 +843,33 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
     if (!text) return;
 
     const maxOrder = Math.max(0, ...todoList.todos.map(t => t.order || 0));
-    const todoTx = db.tx.todos[id()].update({
+    let todoTx = db.tx.todos[id()].update({
       text,
       done: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       order: maxOrder + 1
     }).link({ list: todoList.id });
 
     if (selectedSublist) {
-      todoTx.link({ sublist: selectedSublist });
+      todoTx = todoTx.link({ sublist: selectedSublist });
     }
 
-    db.transact(todoTx);
+    db.transact(todoTx).catch(err => {
+      console.error("Failed to create todo:", err);
+      console.error("Error details:", JSON.stringify(err, null, 2));
+      console.error("Transaction details:", todoTx);
+      alert("Failed to create todo. Please try again.");
+    });
     input.value = "";
   };
 
   return (
-    <div className="border-b border-gray-300 p-3">
+    <div className="border-b border-gray-300 dark:border-gray-600 p-3">
       <form onSubmit={handleSubmit} className="space-y-2">
         <div className="flex space-x-2">
           <input
-            className="flex-1 px-3 py-2 outline-none bg-transparent border border-gray-300 rounded"
+            className="flex-1 px-3 py-2 outline-none bg-transparent border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
             autoFocus
             placeholder="What needs to be done?"
             type="text"
@@ -689,7 +878,7 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
           <select
             value={selectedSublist}
             onChange={(e) => setSelectedSublist(e.target.value)}
-            className="px-2 py-2 border border-gray-300 rounded text-sm"
+            className="px-2 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="">No category</option>
             {todoList.sublists.map(sublist => (
@@ -746,11 +935,11 @@ function ActionBar({ todoList, canWrite }: { todoList: TodoList; canWrite: boole
   const completedTodos = todoList.todos.filter(todo => todo.done);
 
   return (
-    <div className="flex justify-between items-center h-10 px-2 text-xs border-t border-gray-300">
+    <div className="flex justify-between items-center h-10 px-2 text-xs border-t border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300">
       <div>Remaining todos: {remainingCount}</div>
       {canWrite && completedTodos.length > 0 && (
         <button
-          className="text-gray-300 hover:text-gray-500"
+          className="text-gray-400 hover:text-gray-600 dark:text-gray-400 dark:hover:text-gray-300"
           onClick={() => deleteCompleted(completedTodos)}
         >
           Delete Completed ({completedTodos.length})
@@ -764,18 +953,27 @@ function ActionBar({ todoList, canWrite }: { todoList: TodoList; canWrite: boole
 function toggleTodo(todo: Todo) {
   db.transact(db.tx.todos[todo.id].update({ 
     done: !todo.done,
-    updatedAt: new Date()
-  }));
+    updatedAt: new Date().toISOString()
+  })).catch(err => {
+    console.error("Failed to update todo:", err);
+    alert("Failed to update todo. Please try again.");
+  });
 }
 
 function deleteTodo(todo: Todo) {
-  db.transact(db.tx.todos[todo.id].delete());
+  db.transact(db.tx.todos[todo.id].delete()).catch(err => {
+    console.error("Failed to delete todo:", err);
+    alert("Failed to delete todo. Please try again.");
+  });
 }
 
 function deleteCompleted(completedTodos: Todo[]) {
   if (completedTodos.length === 0) return;
   
   if (confirm(`Delete ${completedTodos.length} completed todos?`)) {
-    db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete()));
+    db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete())).catch(err => {
+      console.error("Failed to delete completed todos:", err);
+      alert("Failed to delete completed todos. Please try again.");
+    });
   }
 }

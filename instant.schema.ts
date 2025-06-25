@@ -9,16 +9,16 @@ const _schema = i.schema({
       name: i.string(),
       slug: i.string().unique().indexed(),
       permission: i.string().indexed(), // 'public-write', 'public-read', 'private-write', 'private-read', 'owner'
-      hideCompleted: i.boolean(),
+      hideCompleted: i.boolean().optional(),
       createdAt: i.date().indexed(),
-      updatedAt: i.date(),
+      updatedAt: i.date().optional(),
     }),
     todos: i.entity({
       text: i.string(),
       done: i.boolean(),
       createdAt: i.date().indexed(),
-      updatedAt: i.date(),
-      order: i.number().indexed(),
+      updatedAt: i.date().optional(),
+      order: i.number().indexed().optional(),
     }),
     sublists: i.entity({
       name: i.string(),
@@ -28,6 +28,12 @@ const _schema = i.schema({
     listMembers: i.entity({
       role: i.string(), // 'member', 'owner'
       addedAt: i.date().indexed(),
+    }),
+    invitations: i.entity({
+      email: i.string().indexed(),
+      role: i.string(), // 'member'
+      invitedAt: i.date().indexed(),
+      status: i.string().indexed(), // 'pending', 'accepted', 'declined'
     }),
   },
   links: {
@@ -59,6 +65,16 @@ const _schema = i.schema({
     memberList: {
       forward: { on: 'listMembers', has: 'one', label: 'list', onDelete: 'cascade' },
       reverse: { on: 'todoLists', has: 'many', label: 'members' }
+    },
+    // Link invitations to lists
+    invitationList: {
+      forward: { on: 'invitations', has: 'one', label: 'list', onDelete: 'cascade' },
+      reverse: { on: 'todoLists', has: 'many', label: 'invitations' }
+    },
+    // Link invitations to who sent them
+    invitationInviter: {
+      forward: { on: 'invitations', has: 'one', label: 'inviter', onDelete: 'cascade' },
+      reverse: { on: '$users', has: 'many', label: 'sentInvitations' }
     },
   },
   rooms: {
