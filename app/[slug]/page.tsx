@@ -130,17 +130,19 @@ function AuthRequired() {
 function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const email = inputRef.current!.value;
     setIsLoading(true);
+    setError(null);
     
     try {
       await db.auth.sendMagicCode({ email });
       onSendEmail(email);
     } catch (err: any) {
-      alert("Error sending code: " + (err.body?.message || err.message));
+      setError("Error sending code: " + (err.body?.message || err.message));
       onSendEmail("");
     } finally {
       setIsLoading(false);
@@ -149,6 +151,11 @@ function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
   
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
+          {error}
+        </div>
+      )}
       <div>
         <label htmlFor="email" className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
           Email
@@ -176,16 +183,18 @@ function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
 function CodeStep({ sentEmail }: { sentEmail: string }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const code = inputRef.current!.value;
     setIsLoading(true);
+    setError(null);
     
     try {
       await db.auth.signInWithMagicCode({ email: sentEmail, code });
     } catch (err: any) {
-      alert("Error signing in: " + (err.body?.message || err.message));
+      setError("Error signing in: " + (err.body?.message || err.message));
     } finally {
       setIsLoading(false);
     }
@@ -193,6 +202,11 @@ function CodeStep({ sentEmail }: { sentEmail: string }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
+          {error}
+        </div>
+      )}
       <div>
         <label htmlFor="code" className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
           Verification Code
@@ -383,6 +397,8 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
   const [permission, setPermission] = useState(todoList.permission);
   const [hideCompleted, setHideCompleted] = useState(todoList.hideCompleted);
   const [name, setName] = useState(todoList.name);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showError, setShowError] = useState<string | null>(null);
 
   const handleSave = () => {
     db.transact([
@@ -392,45 +408,48 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
         name,
         updatedAt: new Date().toISOString()
       })
-    ]).catch(err => {
+    ]).then(() => {
+      onClose();
+    }).catch(err => {
       console.error("Failed to update list settings:", err);
-      alert("Failed to update list settings. Please try again.");
+      setShowError("Failed to update list settings. Please try again.");
     });
-    onClose();
   };
 
   const handleDelete = () => {
-    const confirmMessage = `Are you sure you want to delete "${todoList.name}"?\n\nThis will permanently delete:\n• The list and all its settings\n• All ${todoList.todos.length} todos\n• All ${todoList.sublists.length} categories\n• All member access\n\nThis action cannot be undone.`;
-    
-    if (confirm(confirmMessage)) {
-      // Delete all related data
-      const deleteTransactions = [
-        // Delete all todos
-        ...todoList.todos.map(todo => db.tx.todos[todo.id].delete()),
-        // Delete all sublists
-        ...todoList.sublists.map(sublist => db.tx.sublists[sublist.id].delete()),
-        // Delete all members
-        ...todoList.members.map(member => db.tx.listMembers[member.id].delete()),
-        // Delete all invitations
-        ...todoList.invitations.map(invitation => db.tx.invitations[invitation.id].delete()),
-        // Finally delete the list itself
-        db.tx.todoLists[todoList.id].delete()
-      ];
+    // Delete all related data
+    const deleteTransactions = [
+      // Delete all todos
+      ...todoList.todos.map(todo => db.tx.todos[todo.id].delete()),
+      // Delete all sublists
+      ...todoList.sublists.map(sublist => db.tx.sublists[sublist.id].delete()),
+      // Delete all members
+      ...todoList.members.map(member => db.tx.listMembers[member.id].delete()),
+      // Delete all invitations
+      ...todoList.invitations.map(invitation => db.tx.invitations[invitation.id].delete()),
+      // Finally delete the list itself
+      db.tx.todoLists[todoList.id].delete()
+    ];
 
-      db.transact(deleteTransactions).then(() => {
-        // Navigate back to the dashboard after successful deletion
-        router.push('/');
-      }).catch(err => {
-        console.error("Failed to delete list:", err);
-        alert("Failed to delete list. Please try again.");
-      });
-    }
+    db.transact(deleteTransactions).then(() => {
+      // Navigate back to the dashboard after successful deletion
+      router.push('/');
+    }).catch(err => {
+      console.error("Failed to delete list:", err);
+      setShowError("Failed to delete list. Please try again.");
+    });
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">List Settings</h3>
+        
+        {showError && (
+          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
+            {showError}
+          </div>
+        )}
         
         <div className="space-y-4">
           <div>
@@ -502,7 +521,7 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
                   Permanently delete this list, all todos, categories, and member access. This action cannot be undone.
                 </p>
                 <button
-                  onClick={handleDelete}
+                  onClick={() => setShowDeleteConfirm(true)}
                   className="text-sm bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors"
                 >
                   Delete List Forever
@@ -512,6 +531,49 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-60">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+            <h4 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Delete List</h4>
+            <div className="mb-6">
+              <p className="text-gray-600 dark:text-gray-300 mb-4">
+                Are you sure you want to delete "<strong>{todoList.name}</strong>"?
+              </p>
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3">
+                <p className="text-sm text-red-700 dark:text-red-300 mb-2">This will permanently delete:</p>
+                <ul className="text-sm text-red-600 dark:text-red-400 space-y-1">
+                  <li>• The list and all its settings</li>
+                  <li>• All {todoList.todos.length} todos</li>
+                  <li>• All {todoList.sublists.length} categories</li>
+                  <li>• All member access</li>
+                </ul>
+                <p className="text-sm text-red-700 dark:text-red-300 mt-2 font-medium">
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  handleDelete();
+                }}
+                className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+              >
+                Delete Forever
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -529,6 +591,7 @@ function ShareModal({
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [isInviting, setIsInviting] = useState(false);
   const [showSuccess, setShowSuccess] = useState("");
+  const [showError, setShowError] = useState<string | null>(null);
   
   const listUrl = getListUrl(todoList.slug);
 
@@ -539,6 +602,7 @@ function ShareModal({
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy URL");
+      setShowError("Failed to copy URL");
     }
   };
 
@@ -546,6 +610,7 @@ function ShareModal({
     if (!newMemberEmail.trim()) return;
     
     setIsInviting(true);
+    setShowError(null);
     try {
       const email = newMemberEmail.trim().toLowerCase();
       
@@ -555,7 +620,7 @@ function ShareModal({
       );
       
       if (existingMember) {
-        alert("This user is already a member of this list.");
+        setShowError("This user is already a member of this list.");
         setIsInviting(false);
         return;
       }
@@ -566,7 +631,7 @@ function ShareModal({
       );
       
       if (existingInvitation) {
-        alert("An invitation has already been sent to this email.");
+        setShowError("An invitation has already been sent to this email.");
         setIsInviting(false);
         return;
       }
@@ -594,7 +659,7 @@ function ShareModal({
       
     } catch (err) {
       console.error("Failed to send invitation:", err);
-      alert("Failed to send invitation. Please try again.");
+      setShowError("Failed to send invitation. Please try again.");
     } finally {
       setIsInviting(false);
     }
@@ -605,7 +670,7 @@ function ShareModal({
       await db.transact(db.tx.invitations[invitationId].delete());
     } catch (err) {
       console.error("Failed to revoke invitation:", err);
-      alert("Failed to revoke invitation. Please try again.");
+      setShowError("Failed to revoke invitation. Please try again.");
     }
   };
 
@@ -614,7 +679,7 @@ function ShareModal({
       await db.transact(db.tx.listMembers[memberId].delete());
     } catch (err) {
       console.error("Failed to remove member:", err);
-      alert("Failed to remove member. Please try again.");
+      setShowError("Failed to remove member. Please try again.");
     }
   };
 
@@ -630,6 +695,13 @@ function ShareModal({
           {showSuccess && (
             <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded">
               {showSuccess}
+            </div>
+          )}
+
+          {/* Error Message */}
+          {showError && (
+            <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+              {showError}
             </div>
           )}
 
@@ -767,6 +839,8 @@ function SublistSection({
   isOwner: boolean;
 }) {
   const [showCompletedInSublist, setShowCompletedInSublist] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showError, setShowError] = useState<string | null>(null);
   
   const visibleTodos = (todoList.hideCompleted && !showCompletedInSublist) 
     ? sublist.todos.filter(todo => !todo.done)
@@ -777,26 +851,30 @@ function SublistSection({
   const totalCount = sublist.todos.length;
 
   const deleteSublist = () => {
-    if (confirm(`Delete sublist "${sublist.name}" and all its todos?`)) {
-      db.transact([
-        ...sublist.todos.map(todo => db.tx.todos[todo.id].delete()),
-        db.tx.sublists[sublist.id].delete()
-      ]).catch(err => {
-        console.error("Failed to delete sublist:", err);
-        alert("Failed to delete sublist. Please try again.");
-      });
-    }
+    db.transact([
+      ...sublist.todos.map(todo => db.tx.todos[todo.id].delete()),
+      db.tx.sublists[sublist.id].delete()
+    ]).catch(err => {
+      console.error("Failed to delete sublist:", err);
+      setShowError("Failed to delete sublist. Please try again.");
+    });
   };
 
   return (
     <div className="border-b border-gray-300 dark:border-gray-600">
+      {showError && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-3 py-2 text-sm">
+          {showError}
+        </div>
+      )}
+      
       <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 flex items-center justify-between">
         <span className="text-sm font-medium text-gray-900 dark:text-white">
           {sublist.name} ({totalCount - completedCount}/{totalCount})
         </span>
         {isOwner && (
           <button
-            onClick={deleteSublist}
+            onClick={() => setShowDeleteConfirm(true)}
             className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
           >
             Delete
@@ -832,6 +910,35 @@ function SublistSection({
         </div>
       )}
       {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
+      
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+            <h4 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Delete Category</h4>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+              Delete category "<strong>{sublist.name}</strong>" and all its todos?
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  deleteSublist();
+                }}
+                className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -839,6 +946,7 @@ function SublistSection({
 function AddSublistForm({ todoList }: { todoList: TodoList }) {
   const [isAdding, setIsAdding] = useState(false);
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -853,13 +961,14 @@ function AddSublistForm({ todoList }: { todoList: TodoList }) {
           createdAt: new Date().toISOString()
         })
         .link({ list: todoList.id })
-    ).catch(err => {
+    ).then(() => {
+      setName("");
+      setIsAdding(false);
+      setError(null);
+    }).catch(err => {
       console.error("Failed to create sublist:", err);
-      alert("Failed to create sublist. Please try again.");
+      setError("Failed to create category. Please try again.");
     });
-    
-    setName("");
-    setIsAdding(false);
   };
 
   if (!isAdding) {
@@ -877,6 +986,11 @@ function AddSublistForm({ todoList }: { todoList: TodoList }) {
 
   return (
     <div className="border-b border-gray-300 dark:border-gray-600 p-3">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-3 py-2 rounded text-sm mb-3">
+          {error}
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="flex space-x-2">
         <input
           type="text"
@@ -906,6 +1020,7 @@ function AddSublistForm({ todoList }: { todoList: TodoList }) {
 
 function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist?: Sublist }) {
   const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -929,20 +1044,22 @@ function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist?: Sub
       todoTx = todoTx.link({ sublist: sublist.id });
     }
 
-    console.log("About to create todo with transaction:", todoTx);
-
-    db.transact(todoTx).catch(err => {
+    db.transact(todoTx).then(() => {
+      setText("");
+      setError(null);
+    }).catch(err => {
       console.error("Failed to create todo:", err);
-      console.error("Error details:", JSON.stringify(err, null, 2));
-      console.error("Transaction details:", todoTx);
-      alert("Failed to create todo. Please try again.");
+      setError("Failed to create todo. Please try again.");
     });
-    
-    setText("");
   };
 
   return (
     <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-600">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-2 py-1 rounded text-xs mb-2">
+          {error}
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="flex space-x-2">
         <input
           type="text"
@@ -966,6 +1083,7 @@ function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist?: Sub
 
 function TodoForm({ todoList }: { todoList: TodoList }) {
   const [selectedSublist, setSelectedSublist] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -986,17 +1104,22 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
       todoTx = todoTx.link({ sublist: selectedSublist });
     }
 
-    db.transact(todoTx).catch(err => {
+    db.transact(todoTx).then(() => {
+      input.value = "";
+      setError(null);
+    }).catch(err => {
       console.error("Failed to create todo:", err);
-      console.error("Error details:", JSON.stringify(err, null, 2));
-      console.error("Transaction details:", todoTx);
-      alert("Failed to create todo. Please try again.");
+      setError("Failed to create todo. Please try again.");
     });
-    input.value = "";
   };
 
   return (
     <div className="border-b border-gray-300 dark:border-gray-600 p-3">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-3 py-2 rounded text-sm mb-3">
+          {error}
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="space-y-2">
         <div className="flex space-x-2">
           <input
@@ -1087,24 +1210,26 @@ function toggleTodo(todo: Todo) {
     updatedAt: new Date().toISOString()
   })).catch(err => {
     console.error("Failed to update todo:", err);
-    alert("Failed to update todo. Please try again.");
+    // Could add a toast notification here instead of alert
   });
 }
 
 function deleteTodo(todo: Todo) {
   db.transact(db.tx.todos[todo.id].delete()).catch(err => {
     console.error("Failed to delete todo:", err);
-    alert("Failed to delete todo. Please try again.");
+    // Could add a toast notification here instead of alert
   });
 }
 
 function deleteCompleted(completedTodos: Todo[]) {
   if (completedTodos.length === 0) return;
   
+  // This would ideally be a confirmation modal too, but for now keeping it simple
+  // since it's a less critical action
   if (confirm(`Delete ${completedTodos.length} completed todos?`)) {
     db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete())).catch(err => {
       console.error("Failed to delete completed todos:", err);
-      alert("Failed to delete completed todos. Please try again.");
+      // Could add a toast notification here instead of alert
     });
   }
 }

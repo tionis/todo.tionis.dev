@@ -60,6 +60,10 @@ function LandingPage() {
 
 function AuthenticatedApp({ user }: { user: User }) {
   const router = useRouter();
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: any} | null>(null);
+  const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
+  
   const { isLoading, error, data } = db.useQuery({ 
     todoLists: { 
       $: { 
@@ -80,9 +84,8 @@ function AuthenticatedApp({ user }: { user: User }) {
   if (isLoading) return <div className="font-mono min-h-screen flex justify-center items-center">Loading your lists...</div>;
   if (error) return <div className="font-mono min-h-screen flex justify-center items-center text-red-500">Error: {error.message}</div>;
 
-  const createNewList = () => {
+  const createNewList = (listName: string) => {
     const slug = generateSlug();
-    const listName = prompt("Enter list name:") || "New Todo List";
     
     db.transact(
       db.tx.todoLists[id()]
@@ -95,12 +98,23 @@ function AuthenticatedApp({ user }: { user: User }) {
           updatedAt: new Date().toISOString()
         })
         .link({ owner: user.id })
-    ).catch(err => {
+    ).then(() => {
+      router.push(`/${slug}`);
+    }).catch(err => {
       console.error("Failed to create list:", err);
-      alert("Failed to create list. Please try again.");
+      setShowErrorModal({show: true, message: "Failed to create list. Please try again."});
     });
-    
-    router.push(`/${slug}`);
+  };
+
+  const deleteList = (list: any) => {
+    db.transact([
+      ...list.todos.map((todo: any) => db.tx.todos[todo.id].delete()),
+      ...list.members.map((member: any) => db.tx.listMembers[member.id].delete()),
+      db.tx.todoLists[list.id].delete()
+    ]).catch(err => {
+      console.error("Failed to delete list:", err);
+      setShowErrorModal({show: true, message: "Failed to delete list. Please try again."});
+    });
   };
 
   return (
@@ -113,7 +127,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
           <div className="flex space-x-3">
             <button
-              onClick={createNewList}
+              onClick={() => setShowCreateModal(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
               New List
@@ -131,7 +145,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <div className="text-center py-12">
             <p className="text-gray-500 mb-4">You don't have any todo lists yet.</p>
             <button
-              onClick={createNewList}
+              onClick={() => setShowCreateModal(true)}
               className="px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
               Create Your First List
@@ -140,9 +154,43 @@ function AuthenticatedApp({ user }: { user: User }) {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {data.todoLists.map(list => (
-              <TodoListCard key={list.id} list={list} user={user} />
+              <TodoListCard 
+                key={list.id} 
+                list={list} 
+                user={user} 
+                onDelete={(list) => setShowDeleteModal({show: true, list})}
+              />
             ))}
           </div>
+        )}
+
+        {/* Create List Modal */}
+        {showCreateModal && (
+          <CreateListModal 
+            onClose={() => setShowCreateModal(false)}
+            onCreate={createNewList}
+          />
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal?.show && (
+          <ConfirmDeleteModal
+            title="Delete Todo List"
+            message={`Delete "${showDeleteModal.list.name}" and all its todos?`}
+            onConfirm={() => {
+              deleteList(showDeleteModal.list);
+              setShowDeleteModal(null);
+            }}
+            onCancel={() => setShowDeleteModal(null)}
+          />
+        )}
+
+        {/* Error Modal */}
+        {showErrorModal?.show && (
+          <ErrorModal
+            message={showErrorModal.message}
+            onClose={() => setShowErrorModal(null)}
+          />
         )}
       </div>
     </div>
@@ -151,10 +199,12 @@ function AuthenticatedApp({ user }: { user: User }) {
 
 function TodoListCard({ 
   list, 
-  user 
+  user,
+  onDelete 
 }: { 
   list: any; 
   user: User;
+  onDelete: (list: any) => void;
 }) {
   const router = useRouter();
   const [showShareModal, setShowShareModal] = useState(false);
@@ -165,16 +215,7 @@ function TodoListCard({
   const remainingTodos = totalTodos - completedTodos;
 
   const deleteList = () => {
-    if (confirm(`Delete "${list.name}" and all its todos?`)) {
-      db.transact([
-        ...list.todos.map((todo: any) => db.tx.todos[todo.id].delete()),
-        ...list.members.map((member: any) => db.tx.listMembers[member.id].delete()),
-        db.tx.todoLists[list.id].delete()
-      ]).catch(err => {
-        console.error("Failed to delete list:", err);
-        alert("Failed to delete list. Please try again.");
-      });
-    }
+    onDelete(list);
   };
 
   return (
@@ -239,6 +280,7 @@ function ShareModal({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [showError, setShowError] = useState<string | null>(null);
   const listUrl = getListUrl(list.slug);
 
   const handleCopy = async () => {
@@ -247,7 +289,7 @@ function ShareModal({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      alert("Failed to copy URL");
+      setShowError("Failed to copy URL");
     }
   };
 
@@ -257,6 +299,12 @@ function ShareModal({
         <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Share "{list.name}"</h3>
         
         <div className="space-y-4">
+          {showError && (
+            <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+              {showError}
+            </div>
+          )}
+          
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Share URL</label>
             <div className="flex space-x-2">
@@ -296,17 +344,19 @@ function ShareModal({
 function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const email = inputRef.current!.value;
     setIsLoading(true);
+    setError(null);
     
     try {
       await db.auth.sendMagicCode({ email });
       onSendEmail(email);
     } catch (err: any) {
-      alert("Error sending code: " + (err.body?.message || err.message));
+      setError("Error sending code: " + (err.body?.message || err.message));
       onSendEmail("");
     } finally {
       setIsLoading(false);
@@ -315,6 +365,11 @@ function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
   
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
+          {error}
+        </div>
+      )}
       <div>
         <input
           ref={inputRef}
@@ -338,16 +393,18 @@ function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
 function CodeStep({ sentEmail }: { sentEmail: string }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const code = inputRef.current!.value;
     setIsLoading(true);
+    setError(null);
     
     try {
       await db.auth.signInWithMagicCode({ email: sentEmail, code });
     } catch (err: any) {
-      alert("Error signing in: " + (err.body?.message || err.message));
+      setError("Error signing in: " + (err.body?.message || err.message));
     } finally {
       setIsLoading(false);
     }
@@ -355,6 +412,11 @@ function CodeStep({ sentEmail }: { sentEmail: string }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
+          {error}
+        </div>
+      )}
       <div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
           Enter the code sent to {sentEmail}
@@ -375,6 +437,110 @@ function CodeStep({ sentEmail }: { sentEmail: string }) {
         {isLoading ? "Signing in..." : "Sign In"}
       </button>
     </form>
+  );
+}
+
+// Modal Components
+function CreateListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => void }) {
+  const [listName, setListName] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (listName.trim()) {
+      onCreate(listName.trim());
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Create New List</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+              List Name
+            </label>
+            <input
+              type="text"
+              value={listName}
+              onChange={(e) => setListName(e.target.value)}
+              placeholder="Enter list name"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+              autoFocus
+            />
+          </div>
+          <div className="flex space-x-3">
+            <button
+              type="submit"
+              disabled={!listName.trim()}
+              className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Create List
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDeleteModal({ 
+  title, 
+  message, 
+  onConfirm, 
+  onCancel 
+}: { 
+  title: string; 
+  message: string; 
+  onConfirm: () => void; 
+  onCancel: () => void; 
+}) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">{title}</h3>
+        <p className="text-gray-600 dark:text-gray-300 mb-6">{message}</p>
+        <div className="flex space-x-3">
+          <button
+            onClick={onConfirm}
+            className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+          >
+            Delete
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ErrorModal({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+        <h3 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Error</h3>
+        <p className="text-gray-600 dark:text-gray-300 mb-6">{message}</p>
+        <button
+          onClick={onClose}
+          className="w-full bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+        >
+          Close
+        </button>
+      </div>
+    </div>
   );
 }
 
