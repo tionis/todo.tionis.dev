@@ -293,29 +293,30 @@ function TodoListApp({
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 mb-6 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center space-x-4">
-            <span className="flex items-center space-x-1">
-              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-              <span>{numUsers} online</span>
-            </span>
-            <span>Permission: {todoList.permission}</span>
+        <div className="flex flex-col items-center space-y-6">
+          <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-w-2xl">
+            <div className="flex items-center space-x-4">
+              <span className="flex items-center space-x-1">
+                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                <span>{numUsers} online</span>
+              </span>
+              <span>Permission: {todoList.permission}</span>
+            </div>
           </div>
-        </div>
 
-        {showSettings && isOwner && (
-          <SettingsPanel todoList={todoList} onClose={() => setShowSettings(false)} />
-        )}
+          {showSettings && isOwner && (
+            <SettingsPanel todoList={todoList} onClose={() => setShowSettings(false)} />
+          )}
 
-        {showShareModal && (
-          <ShareModal 
-            todoList={todoList} 
-            onClose={() => setShowShareModal(false)} 
-            isOwner={isOwner}
-          />
-        )}
+          {showShareModal && (
+            <ShareModal 
+              todoList={todoList} 
+              onClose={() => setShowShareModal(false)} 
+              isOwner={isOwner}
+            />
+          )}
 
-        <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+          <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
         {canWrite && <TodoForm todoList={todoList} />}
         
         {/* Sublists */}
@@ -371,12 +372,14 @@ function TodoListApp({
         
         <ActionBar todoList={todoList} canWrite={canWrite} />
         </div>
+        </div>
       </div>
     </div>
   );
 }
 
 function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () => void }) {
+  const router = useRouter();
   const [permission, setPermission] = useState(todoList.permission);
   const [hideCompleted, setHideCompleted] = useState(todoList.hideCompleted);
   const [name, setName] = useState(todoList.name);
@@ -396,9 +399,37 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
     onClose();
   };
 
+  const handleDelete = () => {
+    const confirmMessage = `Are you sure you want to delete "${todoList.name}"?\n\nThis will permanently delete:\n• The list and all its settings\n• All ${todoList.todos.length} todos\n• All ${todoList.sublists.length} categories\n• All member access\n\nThis action cannot be undone.`;
+    
+    if (confirm(confirmMessage)) {
+      // Delete all related data
+      const deleteTransactions = [
+        // Delete all todos
+        ...todoList.todos.map(todo => db.tx.todos[todo.id].delete()),
+        // Delete all sublists
+        ...todoList.sublists.map(sublist => db.tx.sublists[sublist.id].delete()),
+        // Delete all members
+        ...todoList.members.map(member => db.tx.listMembers[member.id].delete()),
+        // Delete all invitations
+        ...todoList.invitations.map(invitation => db.tx.invitations[invitation.id].delete()),
+        // Finally delete the list itself
+        db.tx.todoLists[todoList.id].delete()
+      ];
+
+      db.transact(deleteTransactions).then(() => {
+        // Navigate back to the dashboard after successful deletion
+        router.push('/');
+      }).catch(err => {
+        console.error("Failed to delete list:", err);
+        alert("Failed to delete list. Please try again.");
+      });
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-md w-full mx-4">
+      <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
         <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">List Settings</h3>
         
         <div className="space-y-4">
@@ -445,14 +476,40 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
             onClick={handleSave}
             className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
           >
-            Save
+            Save Changes
           </button>
           <button
             onClick={onClose}
-            className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-400"
+            className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
           >
             Cancel
           </button>
+        </div>
+
+        {/* Danger Zone */}
+        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
+          <h4 className="text-sm font-medium text-red-600 dark:text-red-400 mb-3">Danger Zone</h4>
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <span className="text-red-500 text-lg">⚠️</span>
+              </div>
+              <div className="flex-1">
+                <h5 className="text-sm font-medium text-red-800 dark:text-red-300 mb-1">
+                  Delete this list
+                </h5>
+                <p className="text-xs text-red-700 dark:text-red-400 mb-3">
+                  Permanently delete this list, all todos, categories, and member access. This action cannot be undone.
+                </p>
+                <button
+                  onClick={handleDelete}
+                  className="text-sm bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors"
+                >
+                  Delete List Forever
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
