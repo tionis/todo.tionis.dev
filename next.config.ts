@@ -2,35 +2,16 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  // Remove output: 'export' to allow dynamic routes without generateStaticParams
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+  },
   experimental: {
     // Enable static exports for better PWA support
   },
-  headers: async () => {
-    return [
-      {
-        source: '/sw.js',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=0, must-revalidate',
-          },
-          {
-            key: 'Service-Worker-Allowed',
-            value: '/',
-          },
-        ],
-      },
-      {
-        source: '/manifest.json',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
-        ],
-      },
-    ];
-  },
+  // Remove headers - they don't work with static export
+  // Cloudflare Pages will handle caching via _headers file
 };
 
 export default nextConfig;
