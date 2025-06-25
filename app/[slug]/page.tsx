@@ -315,12 +315,39 @@ function TodoListApp({
         {canWrite && <AddSublistForm todoList={todoList} />}
         
         {/* Todos without sublist */}
-        {visibleTodos.length > 0 && (
+        {(visibleTodos.length > 0 || (todosWithoutSublist.length > 0 && todoList.hideCompleted && !showCompletedUncategorized)) && (
           <div>
             <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white">
-              Uncategorized ({visibleTodos.filter(t => !t.done).length}/{visibleTodos.length})
+              Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
             </div>
-            <TodoList todos={visibleTodos} canWrite={canWrite} />
+            {visibleTodos.length > 0 && (
+              <TodoList todos={visibleTodos} canWrite={canWrite} />
+            )}
+            {todoList.hideCompleted && !showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
+              <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+                <button
+                  onClick={() => setShowCompletedUncategorized(true)}
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+                >
+                  <span>▼</span>
+                  <span>Show {completedUncategorizedTodos.length} completed item{completedUncategorizedTodos.length !== 1 ? 's' : ''}</span>
+                </button>
+              </div>
+            )}
+            {todoList.hideCompleted && showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
+              <div>
+                <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+                  <button
+                    onClick={() => setShowCompletedUncategorized(false)}
+                    className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+                  >
+                    <span>▲</span>
+                    <span>Hide completed items</span>
+                  </button>
+                </div>
+                <TodoList todos={completedUncategorizedTodos} canWrite={canWrite} />
+              </div>
+            )}
           </div>
         )}
         
@@ -663,11 +690,14 @@ function SublistSection({
   canWrite: boolean; 
   isOwner: boolean;
 }) {
-  const visibleTodos = todoList.hideCompleted 
+  const [showCompletedInSublist, setShowCompletedInSublist] = useState(false);
+  
+  const visibleTodos = (todoList.hideCompleted && !showCompletedInSublist) 
     ? sublist.todos.filter(todo => !todo.done)
     : sublist.todos;
   
-  const completedCount = sublist.todos.filter(todo => todo.done).length;
+  const completedTodos = sublist.todos.filter(todo => todo.done);
+  const completedCount = completedTodos.length;
   const totalCount = sublist.todos.length;
 
   const deleteSublist = () => {
@@ -699,6 +729,31 @@ function SublistSection({
       </div>
       {visibleTodos.length > 0 && (
         <TodoList todos={visibleTodos} canWrite={canWrite} />
+      )}
+      {todoList.hideCompleted && !showCompletedInSublist && completedTodos.length > 0 && (
+        <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+          <button
+            onClick={() => setShowCompletedInSublist(true)}
+            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+          >
+            <span>▼</span>
+            <span>Show {completedTodos.length} completed item{completedTodos.length !== 1 ? 's' : ''}</span>
+          </button>
+        </div>
+      )}
+      {todoList.hideCompleted && showCompletedInSublist && completedTodos.length > 0 && (
+        <div>
+          <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+            <button
+              onClick={() => setShowCompletedInSublist(false)}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+            >
+              <span>▲</span>
+              <span>Hide completed items</span>
+            </button>
+          </div>
+          <TodoList todos={completedTodos} canWrite={canWrite} />
+        </div>
       )}
       {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
     </div>
