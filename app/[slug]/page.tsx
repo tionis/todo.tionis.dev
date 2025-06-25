@@ -315,7 +315,7 @@ function TodoListApp({
           />
         )}
 
-        <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full bg-white dark:bg-gray-800">
+        <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
         {canWrite && <TodoForm todoList={todoList} />}
         
         {/* Sublists */}
