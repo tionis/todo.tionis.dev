@@ -231,6 +231,7 @@ function TodoListApp({
   isOwner: boolean; 
   canWrite: boolean;
 }) {
+  const router = useRouter();
   const room = db.room("todoList", todoList.slug);
   const { peers } = db.rooms.usePresence(room, {
     initialData: { name: user?.email || "Anonymous", userId: user?.id || undefined }
@@ -252,52 +253,69 @@ function TodoListApp({
   const sublists = todoList.sublists.sort((a, b) => a.order - b.order);
 
   return (
-    <div className="font-mono min-h-screen flex justify-center items-center flex-col space-y-4">
-      <div className="flex items-center space-x-4">
-        <h2 className="tracking-wide text-5xl text-gray-300">{todoList.name}</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setShowShareModal(true)}
-            className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Share
-          </button>
-          {isOwner && (
+    <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-between items-start mb-6">
+          <div className="flex items-center space-x-4">
             <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="px-3 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
+              onClick={() => router.push('/')}
+              className="flex items-center space-x-2 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors border border-gray-300 dark:border-gray-600"
+              title="Back to Lists"
             >
-              Settings
+              <span>←</span>
+              <span>Back</span>
             </button>
-          )}
-          {user && (
+            <h2 className="tracking-wide text-3xl md:text-4xl text-gray-800 dark:text-gray-200 font-light">{todoList.name}</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => db.auth.signOut()}
-              className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600"
+              onClick={() => setShowShareModal(true)}
+              className="px-3 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
             >
-              Sign Out
+              Share
             </button>
-          )}
+            {isOwner && (
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="px-3 py-2 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
+              >
+                Settings
+              </button>
+            )}
+            {user && (
+              <button
+                onClick={() => db.auth.signOut()}
+                className="px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+              >
+                Sign Out
+              </button>
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="text-xs text-gray-500">
-        Online: {numUsers} • Permission: {todoList.permission}
-      </div>
+        <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 mb-6 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center space-x-4">
+            <span className="flex items-center space-x-1">
+              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+              <span>{numUsers} online</span>
+            </span>
+            <span>Permission: {todoList.permission}</span>
+          </div>
+        </div>
 
-      {showSettings && isOwner && (
-        <SettingsPanel todoList={todoList} onClose={() => setShowSettings(false)} />
-      )}
+        {showSettings && isOwner && (
+          <SettingsPanel todoList={todoList} onClose={() => setShowSettings(false)} />
+        )}
 
-      {showShareModal && (
-        <ShareModal 
-          todoList={todoList} 
-          onClose={() => setShowShareModal(false)} 
-          isOwner={isOwner}
-        />
-      )}
+        {showShareModal && (
+          <ShareModal 
+            todoList={todoList} 
+            onClose={() => setShowShareModal(false)} 
+            isOwner={isOwner}
+          />
+        )}
 
-      <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full bg-white dark:bg-gray-800">
+        <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full bg-white dark:bg-gray-800">
         {canWrite && <TodoForm todoList={todoList} />}
         
         {/* Sublists */}
@@ -352,6 +370,7 @@ function TodoListApp({
         )}
         
         <ActionBar todoList={todoList} canWrite={canWrite} />
+        </div>
       </div>
     </div>
   );
