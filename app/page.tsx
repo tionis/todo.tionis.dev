@@ -20,11 +20,6 @@ function LandingPage() {
   const router = useRouter();
   const [sentEmail, setSentEmail] = useState("");
 
-  const createQuickList = () => {
-    const slug = generateSlug();
-    router.push(`/${slug}`);
-  };
-
   return (
     <div className="font-mono min-h-screen flex justify-center items-center flex-col space-y-8">
       <div className="text-center space-y-4">
@@ -33,19 +28,10 @@ function LandingPage() {
       </div>
 
       <div className="space-y-4 w-full max-w-md">
-        <button
-          onClick={createQuickList}
-          className="w-full py-3 px-6 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-        >
-          Create Quick List (No Login Required)
-        </button>
-        
-        <div className="text-center text-gray-500">or</div>
-        
-        <div className="border border-gray-300 rounded-lg p-6">
-          <h3 className="text-lg font-medium mb-4 text-center">Sign In for Full Features</h3>
-          <p className="text-sm text-gray-600 mb-4 text-center">
-            Create private lists, manage permissions, and more
+        <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-6 bg-white dark:bg-gray-800">
+          <h3 className="text-lg font-medium mb-4 text-center text-gray-900 dark:text-white">Sign In to Get Started</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 text-center">
+            Create and manage your todo lists with real-time collaboration
           </p>
           {!sentEmail ? (
             <EmailStep onSendEmail={setSentEmail} />
@@ -64,6 +50,9 @@ function LandingPage() {
           <li>• Works offline</li>
           <li>• Share with simple URLs</li>
         </ul>
+        <p className="mt-4 text-xs">
+          Already have a list URL? Just paste it in your browser to access it.
+        </p>
       </div>
     </div>
   );
@@ -102,8 +91,8 @@ function AuthenticatedApp({ user }: { user: User }) {
           slug,
           permission: "private-write",
           hideCompleted: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         })
         .link({ owner: user.id })
     );
@@ -135,7 +124,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         </div>
 
-        {data.todoLists.length === 0 ? (
+        {!data.todoLists || data.todoLists.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 mb-4">You don't have any todo lists yet.</p>
             <button
