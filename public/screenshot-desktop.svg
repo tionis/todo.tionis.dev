@@ -1,0 +1,14 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="720" fill="#f8fafc"/>
+  <rect x="0" y="0" width="1280" height="100" fill="#2563eb"/>
+  <text x="640" y="60" text-anchor="middle" fill="white" font-family="system-ui" font-size="36" font-weight="bold">Smart Todos - Desktop</text>
+  <rect x="80" y="140" width="520" height="480" rx="16" fill="white" stroke="#e2e8f0" stroke-width="2"/>
+  <rect x="100" y="180" width="400" height="20" rx="10" fill="#2563eb"/>
+  <rect x="100" y="220" width="360" height="20" rx="10" fill="#2563eb"/>
+  <rect x="100" y="260" width="420" height="20" rx="10" fill="#2563eb"/>
+  <rect x="680" y="140" width="520" height="480" rx="16" fill="white" stroke="#e2e8f0" stroke-width="2"/>
+  <rect x="700" y="180" width="380" height="20" rx="10" fill="#6366f1"/>
+  <rect x="700" y="220" width="340" height="20" rx="10" fill="#6366f1"/>
+  <rect x="700" y="260" width="400" height="20" rx="10" fill="#6366f1"/>
+  <text x="640" y="680" text-anchor="middle" fill="#64748b" font-family="system-ui" font-size="28">Desktop View</text>
+</svg>
