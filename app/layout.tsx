@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import PWAInstallerWrapper from "./components/PWAInstallerWrapper";
+import { Suspense } from "react";
+import ServiceWorkerRegistration from "./components/ServiceWorkerRegistration";
 import DarkModeToggle from "./components/DarkModeToggle";
 
 const geistSans = Geist({
@@ -60,7 +61,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <PWAInstallerWrapper />
+        <Suspense fallback={null}>
+          <ServiceWorkerRegistration />
+        </Suspense>
         <DarkModeToggle />
         {children}
       </body>
