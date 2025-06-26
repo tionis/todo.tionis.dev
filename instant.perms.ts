@@ -3,6 +3,7 @@
 import type { InstantRules } from "@instantdb/react";
 
 const rules = {
+  // Temporarily more permissive for debugging
   attrs: {
     allow: {
       $default: "false", // Don't allow creating new attributes in production
@@ -12,20 +13,20 @@ const rules = {
   // Todo lists are the main entities that control access
   todoLists: {
     allow: {
-      view: "data.permission == 'public-read' || data.permission == 'public-write' || (auth.id != null && (data.permission == 'private-read' || data.permission == 'private-write') && (auth.id == data.ref('owner.id')[0] || auth.id in data.ref('members.user.id'))) || (data.permission == 'owner' && auth.id == data.ref('owner.id')[0])",
+      view: "data.permission == 'public-read' || data.permission == 'public-write' || (auth.id != null && (data.permission == 'private-read' || data.permission == 'private-write') && (auth.id in data.ref('owner.id') || auth.id in data.ref('members.user.id')))",
       create: "auth.id != null",
-      update: "auth.id != null && auth.id == data.ref('owner.id')[0]",
-      delete: "auth.id != null && auth.id == data.ref('owner.id')[0]",
+      update: "auth.id != null && auth.id in data.ref('owner.id')",
+      delete: "auth.id != null && auth.id in data.ref('owner.id')",
     },
   },
   
   // Todos inherit permissions from their parent list
   todos: {
     allow: {
-      view: "data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (data.ref('list.permission')[0] == 'private-read' || data.ref('list.permission')[0] == 'private-write') && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
-      create: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && data.ref('list.permission')[0] == 'private-write' && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
-      update: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && data.ref('list.permission')[0] == 'private-write' && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
-      delete: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && data.ref('list.permission')[0] == 'private-write' && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
+      view: "data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
+      create: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
+      update: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
+      delete: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
     },
   },
   

@@ -148,6 +148,43 @@ node debug-cli.js query '{
 - Use user impersonation to test permission rules
 - The CLI bypasses all permissions when running as admin (default)
 
+## Transact Subcommand
+
+Execute database transactions to create, update, or delete data.
+
+```bash
+# Update a todo list's permission
+node debug-cli.js transact update todoLists <list-id> '{permission: "public-read"}'
+
+# Create/update a todo item
+node debug-cli.js transact update todos <todo-id> '{text: "New todo item", done: false}'
+
+# Delete a todo item
+node debug-cli.js transact delete todos <todo-id> '{}'
+
+# Dry run to see what would be executed
+node debug-cli.js transact --dry-run update todoLists <list-id> '{permission: "public-read"}'
+
+# Run transaction as a guest user (respecting permissions)
+node debug-cli.js transact --guest update todos <todo-id> '{done: true}'
+
+# Run transaction while impersonating a user
+node debug-cli.js transact --impersonate-email user@example.com update todos <todo-id> '{text: "Updated"}'
+```
+
+### Syntax
+- **Operation**: `update`, `create`, or `delete`
+- **Entity**: The entity name (e.g., `todoLists`, `todos`, `sublists`)
+- **ID**: The entity ID to operate on
+- **Data**: JSON object or JavaScript object literal with the fields to update
+
+### Options
+- `--dry-run`: Show what would be executed without running it
+- `--guest`: Run as guest user (respecting permissions)
+- `--impersonate-email <email>`: Impersonate user by email
+- `--impersonate-id <id>`: Impersonate user by ID  
+- `--impersonate-token <token>`: Impersonate user by token
+
 ## Troubleshooting
 
 ### Common Issues

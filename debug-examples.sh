@@ -29,15 +29,20 @@ echo "5. Run as guest - See what guests can access:"
 echo "npm run debug query --guest '{\"todoLists\": {\"todos\": {}}}'"
 echo ""
 
-echo "6. Get user information:"
+echo "6. Update data with transactions:"
+echo "npm run debug transact update todoLists 'your-list-id' '{\"permission\": \"public-read\"}'"
+echo "npm run debug transact --dry-run update todos 'your-todo-id' '{\"done\": true}'"
+echo ""
+
+echo "7. Get user information:"
 echo "npm run debug user 'user@example.com'"
 echo ""
 
-echo "7. Check room presence:"
+echo "8. Check room presence:"
 echo "npm run debug presence todoList 'my-list-slug'"
 echo ""
 
-echo "8. Count items with table format:"
+echo "9. Count items with table format:"
 echo "npm run debug query '{\"todoLists\": {}, \"todos\": {}, \"users\": {}}' --format count"
 echo ""
 

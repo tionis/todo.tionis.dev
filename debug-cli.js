@@ -308,6 +308,93 @@ program
     }
   });
 
+// Transact subcommand
+program
+  .command('transact')
+  .description('Execute a transaction against the InstantDB database')
+  .argument('<operation>', 'Transaction operation: "update", "create", or "delete"')
+  .argument('<entity>', 'Entity name (e.g., "todoLists", "todos")')
+  .argument('<id>', 'Entity ID to operate on')
+  .argument('<data>', 'Data object as JSON string or JavaScript object literal')
+  .option('--app-id <id>', 'InstantDB App ID (or set INSTANT_APP_ID env var)')
+  .option('--admin-token <token>', 'InstantDB Admin Token (or set INSTANT_APP_ADMIN_TOKEN env var)')
+  .option('--impersonate-email <email>', 'Impersonate user by email')
+  .option('--impersonate-id <id>', 'Impersonate user by ID')
+  .option('--impersonate-token <token>', 'Impersonate user by token')
+  .option('--guest', 'Run transaction as guest user')
+  .option('--dry-run', 'Show what would be executed without running it', false)
+  .action(async (operation, entity, entityId, dataString, options) => {
+    const db = initDB(options);
+    const data = parseQuery(dataString);
+    
+    // Build the transaction using db.tx syntax
+    let transaction;
+    try {
+      switch (operation.toLowerCase()) {
+        case 'update':
+          transaction = [db.tx[entity][entityId].update(data)];
+          break;
+        case 'create':
+          transaction = [db.tx[entity][entityId].update(data)]; // In InstantDB, create and update are the same
+          break;
+        case 'delete':
+          transaction = [db.tx[entity][entityId].delete()];
+          break;
+        default:
+          console.error(`Invalid operation: ${operation}. Must be one of: update, create, delete`);
+          process.exit(1);
+      }
+    } catch (error) {
+      console.error('Failed to build transaction:', error.message);
+      process.exit(1);
+    }
+    
+    console.log(`Operation: ${operation}`);
+    console.log(`Entity: ${entity}`);
+    console.log(`ID: ${entityId}`);
+    console.log('Data:', JSON.stringify(data, null, 2));
+    
+    if (options.dryRun) {
+      console.log('Dry run mode - transaction not executed');
+      return;
+    }
+    
+    try {
+      let transactDb = db;
+      
+      // Handle user impersonation
+      if (options.impersonateEmail) {
+        console.log(`Impersonating user with email: ${options.impersonateEmail}`);
+        transactDb = db.asUser({ email: options.impersonateEmail });
+      } else if (options.impersonateId) {
+        console.log(`Impersonating user with ID: ${options.impersonateId}`);
+        transactDb = db.asUser({ id: options.impersonateId });
+      } else if (options.impersonateToken) {
+        console.log(`Impersonating user with token: ${options.impersonateToken}`);
+        transactDb = db.asUser({ token: options.impersonateToken });
+      } else if (options.guest) {
+        console.log('Running transaction as guest user');
+        transactDb = db.asUser({ guest: true });
+      } else {
+        console.log('Running transaction as admin (bypassing permissions)');
+      }
+      
+      const startTime = Date.now();
+      const result = await transactDb.transact(transaction);
+      const duration = Date.now() - startTime;
+      
+      console.log(`\nTransaction completed in ${duration}ms`);
+      console.log('Result:', JSON.stringify(result, null, 2));
+      
+    } catch (error) {
+      console.error('Transaction failed:', error.message);
+      if (error.body) {
+        console.error('Error details:', error.body);
+      }
+      process.exit(1);
+    }
+  });
+
 // Global options
 program
   .option('--verbose', 'Enable verbose logging')
