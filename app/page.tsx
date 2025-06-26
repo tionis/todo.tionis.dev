@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { id, User } from "@instantdb/react";
 import { db } from "../lib/db";
 import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
+import { executeTransaction, canUserWrite, canUserView } from "../lib/transactions";
+import LoadingSpinner from "./components/LoadingSpinner";
+import ErrorDisplay from "./components/ErrorDisplay";
 import type { AppSchema } from "../lib/db";
 
 function App() {
@@ -17,11 +20,11 @@ function App() {
 
   // Prevent hydration mismatch by showing loading state until mounted
   if (!mounted) {
-    return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
+    return <LoadingSpinner />;
   }
 
-  if (isLoading) return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
-  if (error) return <div className="font-mono min-h-screen flex justify-center items-center text-red-500">Error: {error.message}</div>;
+  if (isLoading) return <LoadingSpinner />;
+  if (error) return <ErrorDisplay message={error.message} />;
   if (user) return <AuthenticatedApp user={user} />;
   return <LandingPage />;
 }
@@ -94,15 +97,15 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   });
 
-  if (isLoading) return <div className="font-mono min-h-screen flex justify-center items-center">Loading your lists...</div>;
-  if (error) return <div className="font-mono min-h-screen flex justify-center items-center text-red-500">Error: {error.message}</div>;
+  if (isLoading) return <LoadingSpinner message="Loading your lists..." />;
+  if (error) return <ErrorDisplay message={error.message} />;
 
   const pendingInvitationsCount = data.invitations?.length || 0;
 
-  const createNewList = (listName: string) => {
+  const createNewList = async (listName: string) => {
     const slug = generateSlug();
     
-    db.transact(
+    const success = await executeTransaction(
       db.tx.todoLists[id()]
         .update({
           name: listName,
@@ -112,24 +115,27 @@ function AuthenticatedApp({ user }: { user: User }) {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         })
-        .link({ owner: user.id })
-    ).then(() => {
+        .link({ owner: user.id }),
+      "Failed to create list"
+    );
+    
+    if (success) {
       router.push(`/${slug}`);
-    }).catch(err => {
-      console.error("Failed to create list:", err);
+    } else {
       setShowErrorModal({show: true, message: "Failed to create list. Please try again."});
-    });
+    }
   };
 
-  const deleteList = (list: any) => {
-    db.transact([
+  const deleteList = async (list: any) => {
+    const success = await executeTransaction([
       ...list.todos.map((todo: any) => db.tx.todos[todo.id].delete()),
       ...list.members.map((member: any) => db.tx.listMembers[member.id].delete()),
       db.tx.todoLists[list.id].delete()
-    ]).catch(err => {
-      console.error("Failed to delete list:", err);
+    ], "Failed to delete list");
+    
+    if (!success) {
       setShowErrorModal({show: true, message: "Failed to delete list. Please try again."});
-    });
+    }
   };
 
   return (

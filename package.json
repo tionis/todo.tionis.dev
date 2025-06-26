@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "debug": "node debug-cli.js",
-    "generate-icons": "convert public/icon.svg -resize 72x72 public/icon-72.png && convert public/icon.svg -resize 96x96 public/icon-96.png && convert public/icon.svg -resize 128x128 public/icon-128.png && convert public/icon.svg -resize 144x144 public/icon-144.png && convert public/icon.svg -resize 152x152 public/icon-152.png && convert public/icon.svg -resize 192x192 public/icon-192.png && convert public/icon.svg -resize 384x384 public/icon-384.png && convert public/icon.svg -resize 512x512 public/icon-512.png && convert public/icon.svg -resize 180x180 public/apple-icon-180.png",
+    "generate-icons": "npm run generate-icons:main && npm run generate-icons:apple",
+    "generate-icons:main": "for size in 72 96 128 144 152 192 384 512; do convert public/icon.svg -resize ${size}x${size} public/icon-${size}.png; done",
+    "generate-icons:apple": "convert public/icon.svg -resize 180x180 public/apple-icon-180.png",
     "generate-screenshots": "convert public/screenshot-mobile.svg -resize 640x1136 public/screenshot-mobile.png && convert public/screenshot-desktop.svg -resize 1280x800 public/screenshot-desktop.png",
     "generate-assets": "npm run generate-icons && npm run generate-screenshots"
   },

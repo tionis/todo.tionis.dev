@@ -5,6 +5,9 @@ import { useRouter, useParams } from "next/navigation";
 import { id, InstaQLEntity, User } from "@instantdb/react";
 import { db } from "../../lib/db";
 import { copyToClipboard, getListUrl } from "../../lib/utils";
+import { executeTransaction, canUserWrite, canUserView } from "../../lib/transactions";
+import LoadingSpinner from "../components/LoadingSpinner";
+import ErrorDisplay from "../components/ErrorDisplay";
 import type { AppSchema } from "../../lib/db";
 
 type TodoList = InstaQLEntity<AppSchema, "todoLists", { 
@@ -93,34 +96,33 @@ export default function TodoListPage() {
 
   // Prevent hydration mismatch
   if (!mounted || authLoading || isLoading) {
-    return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
+    return <LoadingSpinner />;
   }
 
   if (error) {
-    return <div className="font-mono min-h-screen flex justify-center items-center text-red-500">Error: {error.message}</div>;
+    return <ErrorDisplay message={error.message} />;
   }
 
   if (authError) {
-    return <div className="font-mono min-h-screen flex justify-center items-center text-red-500">Auth Error: {authError.message}</div>;
+    return <ErrorDisplay message={authError.message} />;
   }
 
   const todoList = data.todoLists[0];
   
   if (!todoList) {
-    return <div className="font-mono min-h-screen flex justify-center items-center">Todo list not found</div>;
+    return <ErrorDisplay message="Todo list not found" />;
   }
 
-  // Check permissions
+  // Check permissions using utility functions
   const isOwner = user && todoList.owner && user.id === todoList.owner.id;
-  const isMember = user && todoList.members.some(member => member.user?.id === user.id);
-  const canRead = todoList.permission === 'public-read' || todoList.permission === 'public-write' || isOwner || (user && (todoList.permission === 'private-read' || todoList.permission === 'private-write') && isMember);
-  const canWrite = todoList.permission === 'public-write' || isOwner || (user && todoList.permission === 'private-write' && isMember);
+  const canRead = canUserView(user, todoList, todoList.permission);
+  const canWrite = canUserWrite(user, todoList, todoList.permission);
 
   if (!canRead) {
     if (!user) {
       return <AuthRequired />;
     }
-    return <div className="font-mono min-h-screen flex justify-center items-center">You don't have permission to view this list</div>;
+    return <ErrorDisplay message="You don't have permission to view this list" />;
   }
 
   return (
