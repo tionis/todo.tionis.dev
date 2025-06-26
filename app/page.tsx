@@ -78,11 +78,16 @@ function AuthenticatedApp({ user }: { user: User }) {
       owner: {},
       todos: {},
       members: { user: {} }
-    } 
+    },
+    invitations: {
+      $: { where: { email: user.email.toLowerCase(), status: 'pending' } }
+    }
   });
 
   if (isLoading) return <div className="font-mono min-h-screen flex justify-center items-center">Loading your lists...</div>;
   if (error) return <div className="font-mono min-h-screen flex justify-center items-center text-red-500">Error: {error.message}</div>;
+
+  const pendingInvitationsCount = data.invitations?.length || 0;
 
   const createNewList = (listName: string) => {
     const slug = generateSlug();
@@ -126,6 +131,17 @@ function AuthenticatedApp({ user }: { user: User }) {
             <p className="text-gray-500">Welcome back, {user.email}</p>
           </div>
           <div className="flex space-x-3">
+            <button
+              onClick={() => router.push('/invitations')}
+              className="relative px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+            >
+              Invitations
+              {pendingInvitationsCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {pendingInvitationsCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setShowCreateModal(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"

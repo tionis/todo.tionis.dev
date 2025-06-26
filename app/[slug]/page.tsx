@@ -35,6 +35,12 @@ export default function TodoListPage() {
   });
 
   // Auto-accept invitations when user signs in
+  const [autoAcceptStatus, setAutoAcceptStatus] = useState<{
+    accepting: boolean;
+    accepted: boolean;
+    error: string | null;
+  }>({ accepting: false, accepted: false, error: null });
+
   useEffect(() => {
     if (user && data?.todoLists?.[0]) {
       const todoList = data.todoLists[0];
@@ -45,7 +51,9 @@ export default function TodoListPage() {
         inv.email.toLowerCase() === userEmail && inv.status === 'pending'
       );
       
-      if (pendingInvitation) {
+      if (pendingInvitation && !autoAcceptStatus.accepting && !autoAcceptStatus.accepted) {
+        setAutoAcceptStatus({ accepting: true, accepted: false, error: null });
+        
         // Accept the invitation by creating a member record and updating invitation status
         db.transact([
           db.tx.listMembers[id()]
@@ -60,13 +68,23 @@ export default function TodoListPage() {
           db.tx.invitations[pendingInvitation.id].update({
             status: 'accepted'
           })
-        ]).catch(err => {
+        ]).then(() => {
+          setAutoAcceptStatus({ accepting: false, accepted: true, error: null });
+          // Auto-hide the success message after 5 seconds
+          setTimeout(() => {
+            setAutoAcceptStatus(prev => ({ ...prev, accepted: false }));
+          }, 5000);
+        }).catch(err => {
           console.error("Failed to accept invitation:", err);
-          // Don't show alert here as this is automatic
+          setAutoAcceptStatus({ 
+            accepting: false, 
+            accepted: false, 
+            error: "Failed to automatically accept invitation. Please try refreshing the page." 
+          });
         });
       }
     }
-  }, [user, data?.todoLists]);
+  }, [user, data?.todoLists, autoAcceptStatus.accepting, autoAcceptStatus.accepted]);
 
   if (authLoading || isLoading) {
     return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
@@ -104,7 +122,8 @@ export default function TodoListPage() {
       todoList={todoList} 
       user={user} 
       isOwner={!!isOwner} 
-      canWrite={!!canWrite} 
+      canWrite={!!canWrite}
+      autoAcceptStatus={autoAcceptStatus}
     />
   );
 }
@@ -238,12 +257,18 @@ function TodoListApp({
   todoList, 
   user, 
   isOwner, 
-  canWrite 
+  canWrite,
+  autoAcceptStatus
 }: { 
   todoList: TodoList; 
   user: User | null; 
   isOwner: boolean; 
   canWrite: boolean;
+  autoAcceptStatus: {
+    accepting: boolean;
+    accepted: boolean;
+    error: string | null;
+  };
 }) {
   const router = useRouter();
   const room = db.room("todoList", todoList.slug);
@@ -305,9 +330,35 @@ function TodoListApp({
               </button>
             )}
           </div>
-        </div>
+        </div>          <div className="flex flex-col items-center space-y-6">
+          {/* Auto-accept Status */}
+          {autoAcceptStatus.accepting && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-4 py-3 rounded-lg w-full max-w-2xl">
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span>Accepting invitation...</span>
+              </div>
+            </div>
+          )}
+          
+          {autoAcceptStatus.accepted && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 px-4 py-3 rounded-lg w-full max-w-2xl">
+              <div className="flex items-center space-x-2">
+                <span>✓</span>
+                <span>Welcome! You've been added to this list.</span>
+              </div>
+            </div>
+          )}
+          
+          {autoAcceptStatus.error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg w-full max-w-2xl">
+              <div className="flex items-center space-x-2">
+                <span>⚠️</span>
+                <span>{autoAcceptStatus.error}</span>
+              </div>
+            </div>
+          )}
 
-        <div className="flex flex-col items-center space-y-6">
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-w-2xl">
             <div className="flex items-center space-x-4">
               <span className="flex items-center space-x-1">
@@ -651,7 +702,7 @@ function ShareModal({
           })
       );
       
-      setShowSuccess(`Invitation sent to ${email}! They can now access the list using this URL.`);
+      setShowSuccess(`Invitation sent to ${email}! They can now access the list using this URL or check their invitations page.`);
       setNewMemberEmail("");
       
       // Auto-hide success message
