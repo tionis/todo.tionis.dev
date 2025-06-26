@@ -402,7 +402,7 @@ function TodoListApp({
         {canWrite && <AddSublistForm todoList={todoList} />}
         
         {/* Todos without sublist */}
-        {(visibleTodos.length > 0 || (todosWithoutSublist.length > 0 && todoList.hideCompleted && !showCompletedUncategorized)) && (
+        {(visibleTodos.length > 0 || (todosWithoutSublist.length > 0 && todoList.hideCompleted)) && (
           <div>
             <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white">
               Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})

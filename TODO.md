@@ -1,4 +1,3 @@
 - [ ] fix list member email in share modal on todo list page
 - [ ] fix invitedBy email field in invititation on invitation page
 - [ ] fix routing when compiling to static website (use client-side routing?)
-- [ ] if clicking on "show hidden todos" that are not in categories they and the button completely disappear on press
