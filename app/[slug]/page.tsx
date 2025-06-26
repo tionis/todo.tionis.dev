@@ -258,7 +258,7 @@ function TodoListApp({
 
   // Sort todos by sublist and order
   const todosWithoutSublist = todoList.todos.filter(todo => !todo.sublist);
-  const visibleTodos = (todoList.hideCompleted && !showCompletedUncategorized) 
+  const visibleTodos = todoList.hideCompleted 
     ? todosWithoutSublist.filter(todo => !todo.done)
     : todosWithoutSublist;
 
@@ -842,7 +842,7 @@ function SublistSection({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
   
-  const visibleTodos = (todoList.hideCompleted && !showCompletedInSublist) 
+  const visibleTodos = todoList.hideCompleted 
     ? sublist.todos.filter(todo => !todo.done)
     : sublist.todos;
   
