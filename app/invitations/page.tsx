@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { id } from "@instantdb/react";
 import { db } from "../../lib/db";
@@ -8,9 +8,14 @@ import { getListUrl } from "../../lib/utils";
 
 export default function InvitationsPage() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const { isLoading: authLoading, user, error: authError } = db.useAuth();
   const [processingInvitation, setProcessingInvitation] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Query for invitations sent to the current user's email
   const { isLoading, error, data } = db.useQuery(
@@ -22,7 +27,8 @@ export default function InvitationsPage() {
     } : null
   );
 
-  if (authLoading || isLoading) {
+  // Prevent hydration mismatch
+  if (!mounted || authLoading || isLoading) {
     return (
       <div className="font-mono min-h-screen flex justify-center items-center bg-gray-50 dark:bg-gray-900">
         <div className="text-gray-600 dark:text-gray-400">Loading invitations...</div>
@@ -195,12 +201,12 @@ export default function InvitationsPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                      {invitation.list.name}
+                      {invitation.list?.name || 'Unknown List'}
                     </h3>
                     <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
                       <p>
                         <span className="font-medium">Invited by:</span>{' '}
-                        {invitation.list.owner?.email || 'Unknown'}
+                        {invitation.list?.owner?.email || 'Unknown'}
                       </p>
                       <p>
                         <span className="font-medium">Role:</span>{' '}

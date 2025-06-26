@@ -21,6 +21,7 @@ export default function TodoListPage() {
   const params = useParams();
   const router = useRouter();
   const slug = params.slug as string;
+  const [mounted, setMounted] = useState(false);
   
   const { isLoading: authLoading, user, error: authError } = db.useAuth();
   const { isLoading, error, data } = db.useQuery({ 
@@ -33,6 +34,10 @@ export default function TodoListPage() {
       invitations: {}
     } 
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Auto-accept invitations when user signs in
   const [autoAcceptStatus, setAutoAcceptStatus] = useState<{
@@ -86,7 +91,8 @@ export default function TodoListPage() {
     }
   }, [user, data?.todoLists, autoAcceptStatus.accepting, autoAcceptStatus.accepted]);
 
-  if (authLoading || isLoading) {
+  // Prevent hydration mismatch
+  if (!mounted || authLoading || isLoading) {
     return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
   }
 
@@ -361,10 +367,7 @@ function TodoListApp({
 
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-w-2xl">
             <div className="flex items-center space-x-4">
-              <span className="flex items-center space-x-1">
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                <span>{numUsers} online</span>
-              </span>
+              <OnlineUsersTooltip currentUser={user} peers={peers} numUsers={numUsers} />
               <span>Permission: {todoList.permission}</span>
             </div>
           </div>
@@ -405,7 +408,7 @@ function TodoListApp({
               Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
             </div>
             {visibleTodos.length > 0 && (
-              <TodoList todos={visibleTodos} canWrite={canWrite} />
+              <TodoListComponent todos={visibleTodos} canWrite={canWrite} />
             )}
             {todoList.hideCompleted && !showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
               <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
@@ -429,7 +432,7 @@ function TodoListApp({
                     <span>Hide completed items</span>
                   </button>
                 </div>
-                <TodoList todos={completedUncategorizedTodos} canWrite={canWrite} />
+                <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} />
               </div>
             )}
           </div>
@@ -878,6 +881,168 @@ function ShareModal({
   );
 }
 
+function OnlineUsersTooltip({ 
+  currentUser, 
+  peers, 
+  numUsers 
+}: { 
+  currentUser: User | null; 
+  peers: Record<string, any>; 
+  numUsers: number;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  
+  const allUsers = [
+    ...(currentUser ? [{
+      id: currentUser.id,
+      name: currentUser.email,
+      isCurrentUser: true
+    }] : []),
+    ...Object.entries(peers).map(([peerId, peer]) => ({
+      id: peerId,
+      name: peer.name || 'Anonymous',
+      isCurrentUser: false
+    }))
+  ];
+
+  return (
+    <div className="relative">
+      <span 
+        className="flex items-center space-x-1 cursor-help"
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+        <span>{numUsers} online</span>
+      </span>
+      
+      {showTooltip && (
+        <div className="absolute bottom-full left-0 mb-2 z-50">
+          <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg py-2 px-3 shadow-lg whitespace-nowrap">
+            <div className="font-medium mb-1">Online users:</div>
+            {allUsers.map((user, index) => (
+              <div key={user.id} className="flex items-center space-x-2 py-0.5">
+                <div className="w-1.5 h-1.5 bg-green-400 rounded-full flex-shrink-0"></div>
+                <span className={user.isCurrentUser ? 'font-medium' : ''}>
+                  {user.name}{user.isCurrentUser ? ' (You)' : ''}
+                </span>
+              </div>
+            ))}
+            {allUsers.length === 0 && (
+              <div className="text-gray-400">No users online</div>
+            )}
+            {/* Tooltip arrow */}
+            <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900 dark:border-t-gray-700"></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TodoForm({ todoList }: { todoList: TodoList }) {
+  const [selectedSublist, setSelectedSublist] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const input = e.currentTarget.input as HTMLInputElement;
+    const text = input.value.trim();
+    if (!text) return;
+
+    const maxOrder = Math.max(0, ...todoList.todos.map(t => t.order || 0));
+    let todoTx = db.tx.todos[id()].update({
+      text,
+      done: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      order: maxOrder + 1
+    }).link({ list: todoList.id });
+
+    if (selectedSublist) {
+      todoTx = todoTx.link({ sublist: selectedSublist });
+    }
+
+    db.transact(todoTx).then(() => {
+      input.value = "";
+      setError(null);
+    }).catch(err => {
+      console.error("Failed to create todo:", err);
+      setError("Failed to create todo. Please try again.");
+    });
+  };
+
+  return (
+    <div className="border-b border-gray-300 dark:border-gray-600 p-3">
+      {error && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-3 py-2 rounded text-sm mb-3">
+          {error}
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-2">
+        <div className="flex space-x-2">
+          <input
+            className="flex-1 px-3 py-2 outline-none bg-transparent border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+            autoFocus
+            placeholder="What needs to be done?"
+            type="text"
+            name="input"
+          />
+          <select
+            value={selectedSublist}
+            onChange={(e) => setSelectedSublist(e.target.value)}
+            className="px-2 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          >
+            <option value="">No category</option>
+            {todoList.sublists.map(sublist => (
+              <option key={sublist.id} value={sublist.id}>
+                {sublist.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TodoListComponent({ todos, canWrite }: { todos: Todo[]; canWrite: boolean }) {
+  const sortedTodos = [...todos].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  return (
+    <div className="divide-y divide-gray-300">
+      {sortedTodos.map((todo) => (
+        <div key={todo.id} className="flex items-center h-10">
+          <div className="h-full px-2 flex items-center justify-center">
+            <input
+              type="checkbox"
+              className="cursor-pointer"
+              checked={todo.done}
+              onChange={() => canWrite && toggleTodo(todo)}
+              disabled={!canWrite}
+            />
+          </div>
+          <div className="flex-1 px-2 overflow-hidden flex items-center">
+            {todo.done ? (
+              <span className="line-through text-gray-500">{todo.text}</span>
+            ) : (
+              <span>{todo.text}</span>
+            )}
+          </div>
+          {canWrite && (
+            <button
+              className="h-full px-2 flex items-center justify-center text-gray-300 hover:text-gray-500"
+              onClick={() => deleteTodo(todo)}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SublistSection({ 
   sublist, 
   todoList, 
@@ -933,7 +1098,7 @@ function SublistSection({
         )}
       </div>
       {visibleTodos.length > 0 && (
-        <TodoList todos={visibleTodos} canWrite={canWrite} />
+        <TodoListComponent todos={visibleTodos} canWrite={canWrite} />
       )}
       {todoList.hideCompleted && !showCompletedInSublist && completedTodos.length > 0 && (
         <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
@@ -957,7 +1122,7 @@ function SublistSection({
               <span>Hide completed items</span>
             </button>
           </div>
-          <TodoList todos={completedTodos} canWrite={canWrite} />
+          <TodoListComponent todos={completedTodos} canWrite={canWrite} />
         </div>
       )}
       {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
@@ -1128,109 +1293,6 @@ function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist?: Sub
           </button>
         )}
       </form>
-    </div>
-  );
-}
-
-function TodoForm({ todoList }: { todoList: TodoList }) {
-  const [selectedSublist, setSelectedSublist] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const input = e.currentTarget.input as HTMLInputElement;
-    const text = input.value.trim();
-    if (!text) return;
-
-    const maxOrder = Math.max(0, ...todoList.todos.map(t => t.order || 0));
-    let todoTx = db.tx.todos[id()].update({
-      text,
-      done: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      order: maxOrder + 1
-    }).link({ list: todoList.id });
-
-    if (selectedSublist) {
-      todoTx = todoTx.link({ sublist: selectedSublist });
-    }
-
-    db.transact(todoTx).then(() => {
-      input.value = "";
-      setError(null);
-    }).catch(err => {
-      console.error("Failed to create todo:", err);
-      setError("Failed to create todo. Please try again.");
-    });
-  };
-
-  return (
-    <div className="border-b border-gray-300 dark:border-gray-600 p-3">
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-3 py-2 rounded text-sm mb-3">
-          {error}
-        </div>
-      )}
-      <form onSubmit={handleSubmit} className="space-y-2">
-        <div className="flex space-x-2">
-          <input
-            className="flex-1 px-3 py-2 outline-none bg-transparent border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-            autoFocus
-            placeholder="What needs to be done?"
-            type="text"
-            name="input"
-          />
-          <select
-            value={selectedSublist}
-            onChange={(e) => setSelectedSublist(e.target.value)}
-            className="px-2 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-          >
-            <option value="">No category</option>
-            {todoList.sublists.map(sublist => (
-              <option key={sublist.id} value={sublist.id}>
-                {sublist.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function TodoList({ todos, canWrite }: { todos: Todo[]; canWrite: boolean }) {
-  const sortedTodos = [...todos].sort((a, b) => (a.order || 0) - (b.order || 0));
-
-  return (
-    <div className="divide-y divide-gray-300">
-      {sortedTodos.map((todo) => (
-        <div key={todo.id} className="flex items-center h-10">
-          <div className="h-full px-2 flex items-center justify-center">
-            <input
-              type="checkbox"
-              className="cursor-pointer"
-              checked={todo.done}
-              onChange={() => canWrite && toggleTodo(todo)}
-              disabled={!canWrite}
-            />
-          </div>
-          <div className="flex-1 px-2 overflow-hidden flex items-center">
-            {todo.done ? (
-              <span className="line-through text-gray-500">{todo.text}</span>
-            ) : (
-              <span>{todo.text}</span>
-            )}
-          </div>
-          {canWrite && (
-            <button
-              className="h-full px-2 flex items-center justify-center text-gray-300 hover:text-gray-500"
-              onClick={() => deleteTodo(todo)}
-            >
-              ×
-            </button>
-          )}
-        </div>
-      ))}
     </div>
   );
 }

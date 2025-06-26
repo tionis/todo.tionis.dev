@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { id, User } from "@instantdb/react";
 import { db } from "../lib/db";
@@ -8,7 +8,17 @@ import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
 import type { AppSchema } from "../lib/db";
 
 function App() {
+  const [mounted, setMounted] = useState(false);
   const { isLoading, user, error } = db.useAuth();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Prevent hydration mismatch by showing loading state until mounted
+  if (!mounted) {
+    return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
+  }
 
   if (isLoading) return <div className="font-mono min-h-screen flex justify-center items-center">Loading...</div>;
   if (error) return <div className="font-mono min-h-screen flex justify-center items-center text-red-500">Error: {error.message}</div>;
