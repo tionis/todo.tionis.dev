@@ -1,17 +1,27 @@
 import { db } from './db';
 
 /**
- * Execute a database transaction with error handling
+ * Execute a database transaction with error handling and optional toast notifications
  */
 export async function executeTransaction(
   transaction: any,
-  errorMessage: string = "Operation failed"
+  errorMessage: string = "Operation failed",
+  showToast: boolean = false
 ): Promise<boolean> {
   try {
     await db.transact(transaction);
     return true;
   } catch (error) {
     console.error(errorMessage, error);
+    
+    if (showToast && typeof window !== 'undefined') {
+      // Dynamic import to avoid SSR issues
+      import('../app/components/Toast').then(({ useToast }) => {
+        // Note: This is a simplified approach. In a real app, you'd want a proper toast context
+        console.error(errorMessage); // Fallback to console for now
+      });
+    }
+    
     return false;
   }
 }

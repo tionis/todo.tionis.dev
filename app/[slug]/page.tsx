@@ -1319,21 +1319,31 @@ function ActionBar({ todoList, canWrite }: { todoList: TodoList; canWrite: boole
 }
 
 // Helper functions
-function toggleTodo(todo: Todo) {
-  db.transact(db.tx.todos[todo.id].update({ 
-    done: !todo.done,
-    updatedAt: new Date().toISOString()
-  })).catch(err => {
-    console.error("Failed to update todo:", err);
-    // Could add a toast notification here instead of alert
-  });
+async function toggleTodo(todo: Todo) {
+  const success = await executeTransaction(
+    db.tx.todos[todo.id].update({ 
+      done: !todo.done,
+      updatedAt: new Date().toISOString()
+    }),
+    "Failed to update todo"
+  );
+  
+  if (!success) {
+    console.error("Failed to update todo");
+    // TODO: Add toast notification for better UX
+  }
 }
 
-function deleteTodo(todo: Todo) {
-  db.transact(db.tx.todos[todo.id].delete()).catch(err => {
-    console.error("Failed to delete todo:", err);
-    // Could add a toast notification here instead of alert
-  });
+async function deleteTodo(todo: Todo) {
+  const success = await executeTransaction(
+    db.tx.todos[todo.id].delete(),
+    "Failed to delete todo"
+  );
+  
+  if (!success) {
+    console.error("Failed to delete todo");
+    // TODO: Add toast notification for better UX
+  }
 }
 
 function deleteCompleted(completedTodos: Todo[]) {

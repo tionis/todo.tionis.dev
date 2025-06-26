@@ -17,11 +17,9 @@ const staticAssets = [
 
 // Install event - cache static resources
 self.addEventListener('install', (event) => {
-  console.log('Service Worker installing...');
   event.waitUntil(
     caches.open(STATIC_CACHE_NAME)
       .then((cache) => {
-        console.log('Caching static assets');
         return cache.addAll(staticAssets);
       })
       .then(() => {
@@ -32,13 +30,11 @@ self.addEventListener('install', (event) => {
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker activating...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== STATIC_CACHE_NAME && cacheName !== DYNAMIC_CACHE_NAME) {
-            console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
         })
@@ -151,12 +147,10 @@ self.addEventListener('fetch', (event) => {
 
 // Handle background sync (for when the app comes back online)
 self.addEventListener('sync', (event) => {
-  console.log('Background sync triggered');
   // Here you could implement offline data synchronization
 });
 
 // Handle push notifications (future enhancement)
 self.addEventListener('push', (event) => {
-  console.log('Push notification received');
   // Here you could implement push notifications
 });

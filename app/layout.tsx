@@ -4,6 +4,7 @@ import "./globals.css";
 import { Suspense } from "react";
 import ServiceWorkerRegistration from "./components/ServiceWorkerRegistration";
 import DarkModeToggle from "./components/DarkModeToggle";
+import ToastContainer from "./components/Toast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -57,6 +58,7 @@ export default function RootLayout({
           <ServiceWorkerRegistration />
         </Suspense>
         <DarkModeToggle />
+        <ToastContainer />
         {children}
       </body>
     </html>
