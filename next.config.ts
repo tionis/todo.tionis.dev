@@ -10,8 +10,6 @@ const nextConfig: NextConfig = {
   experimental: {
     // Enable static exports for better PWA support
   },
-  // Remove headers - they don't work with static export
-  // Cloudflare Pages will handle caching via _headers file
 };
 
 export default nextConfig;
