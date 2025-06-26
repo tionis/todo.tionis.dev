@@ -1,80 +1,150 @@
-import { i } from '@instantdb/react';
+// Docs: https://www.instantdb.com/docs/modeling-data
+
+import { i } from "@instantdb/react";
 
 const _schema = i.schema({
   entities: {
+    $files: i.entity({
+      path: i.string().unique().indexed(),
+      url: i.string(),
+    }),
     $users: i.entity({
-      email: i.string().unique().indexed(),
-    }),
-    todoLists: i.entity({
-      name: i.string(),
-      slug: i.string().unique().indexed(),
-      permission: i.string().indexed(), // 'public-write', 'public-read', 'private-write', 'private-read', 'owner'
-      hideCompleted: i.boolean().optional(),
-      createdAt: i.date().indexed(),
-      updatedAt: i.date().optional(),
-    }),
-    todos: i.entity({
-      text: i.string(),
-      done: i.boolean(),
-      createdAt: i.date().indexed(),
-      updatedAt: i.date().optional(),
-      order: i.number().indexed().optional(),
-    }),
-    sublists: i.entity({
-      name: i.string(),
-      order: i.number().indexed(),
-      createdAt: i.date().indexed(),
-    }),
-    listMembers: i.entity({
-      role: i.string(), // 'member', 'owner'
-      addedAt: i.date().indexed(),
+      email: i.string().unique().indexed().optional(),
     }),
     invitations: i.entity({
       email: i.string().indexed(),
-      role: i.string(), // 'member'
       invitedAt: i.date().indexed(),
-      status: i.string().indexed(), // 'pending', 'accepted', 'declined'
+      role: i.string(),
+      status: i.string().indexed(),
+    }),
+    listMembers: i.entity({
+      addedAt: i.date().indexed(),
+      role: i.string(),
+    }),
+    sublists: i.entity({
+      createdAt: i.date().indexed(),
+      name: i.string(),
+      order: i.number().indexed(),
+    }),
+    todoLists: i.entity({
+      createdAt: i.date().indexed(),
+      hideCompleted: i.boolean().optional(),
+      name: i.string(),
+      permission: i.string().indexed(),
+      slug: i.string().unique().indexed(),
+      updatedAt: i.date().optional(),
+    }),
+    todos: i.entity({
+      createdAt: i.date().indexed(),
+      done: i.boolean(),
+      order: i.number().indexed().optional(),
+      text: i.string(),
+      updatedAt: i.date().optional(),
     }),
   },
   links: {
-    // Link todo lists to their owners
-    listOwner: {
-      forward: { on: 'todoLists', has: 'one', label: 'owner', onDelete: 'cascade' },
-      reverse: { on: '$users', has: 'many', label: 'ownedLists' }
+    invitationsInviter: {
+      forward: {
+        on: "invitations",
+        has: "one",
+        label: "inviter",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "$users",
+        has: "many",
+        label: "sentInvitations",
+      },
     },
-    // Link todos to their lists
-    todoList: {
-      forward: { on: 'todos', has: 'one', label: 'list', onDelete: 'cascade' },
-      reverse: { on: 'todoLists', has: 'many', label: 'todos' }
+    invitationsList: {
+      forward: {
+        on: "invitations",
+        has: "one",
+        label: "list",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "todoLists",
+        has: "many",
+        label: "invitations",
+      },
     },
-    // Link todos to sublists (optional)
-    todoSublist: {
-      forward: { on: 'todos', has: 'one', label: 'sublist' },
-      reverse: { on: 'sublists', has: 'many', label: 'todos' }
+    listMembersList: {
+      forward: {
+        on: "listMembers",
+        has: "one",
+        label: "list",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "todoLists",
+        has: "many",
+        label: "members",
+      },
     },
-    // Link sublists to their lists
-    sublistList: {
-      forward: { on: 'sublists', has: 'one', label: 'list', onDelete: 'cascade' },
-      reverse: { on: 'todoLists', has: 'many', label: 'sublists' }
+    listMembersUser: {
+      forward: {
+        on: "listMembers",
+        has: "one",
+        label: "user",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "$users",
+        has: "many",
+        label: "memberships",
+      },
     },
-    // Link list members to users and lists
-    memberUser: {
-      forward: { on: 'listMembers', has: 'one', label: 'user', onDelete: 'cascade' },
-      reverse: { on: '$users', has: 'many', label: 'memberships' }
+    sublistsList: {
+      forward: {
+        on: "sublists",
+        has: "one",
+        label: "list",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "todoLists",
+        has: "many",
+        label: "sublists",
+      },
     },
-    memberList: {
-      forward: { on: 'listMembers', has: 'one', label: 'list', onDelete: 'cascade' },
-      reverse: { on: 'todoLists', has: 'many', label: 'members' }
+    todoListsOwner: {
+      forward: {
+        on: "todoLists",
+        has: "one",
+        label: "owner",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "$users",
+        has: "many",
+        label: "ownedLists",
+      },
     },
-    // Link invitations to lists
-    invitationList: {
-      forward: { on: 'invitations', has: 'one', label: 'list', onDelete: 'cascade' },
-      reverse: { on: 'todoLists', has: 'many', label: 'invitations' }
+    todosList: {
+      forward: {
+        on: "todos",
+        has: "one",
+        label: "list",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "todoLists",
+        has: "many",
+        label: "todos",
+      },
     },
-    // Link invitations to who sent them
-    invitationInviter: {
-      forward: { on: 'invitations', has: 'one', label: 'inviter', onDelete: 'cascade' },
-      reverse: { on: '$users', has: 'many', label: 'sentInvitations' }
+    todosSublist: {
+      forward: {
+        on: "todos",
+        has: "one",
+        label: "sublist",
+      },
+      reverse: {
+        on: "sublists",
+        has: "many",
+        label: "todos",
+      },
     },
   },
   rooms: {
@@ -87,6 +157,7 @@ const _schema = i.schema({
   },
 });
 
+// This helps Typescript display nicer intellisense
 type _AppSchema = typeof _schema;
 interface AppSchema extends _AppSchema {}
 const schema: AppSchema = _schema;
