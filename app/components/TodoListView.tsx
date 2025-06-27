@@ -334,8 +334,9 @@ function TodoListApp({
   });
   
   const numUsers = 1 + Object.keys(peers).length;
-  const [showSettings, setShowSettings] = useState(false);
+  const [showDeleteCompletedConfirm, setShowDeleteCompletedConfirm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showCompletedUncategorized, setShowCompletedUncategorized] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(todoList.name);
@@ -352,17 +353,20 @@ function TodoListApp({
 
   const deleteCompleted = (completedTodos: Todo[]) => {
     if (completedTodos.length === 0) return;
+    setShowDeleteCompletedConfirm(true);
+  };
+
+  const handleDeleteCompleted = () => {
+    const completedTodos = todoList.todos.filter(todo => todo.done);
     
-    // This would ideally be a confirmation modal too, but for now keeping it simple
-    // since it's a less critical action
-    if (confirm(`Delete ${completedTodos.length} completed todos?`)) {
-      db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete())).then(() => {
-        addToast(`Successfully deleted ${completedTodos.length} completed todos`, "success");
-      }).catch(err => {
-        console.error("Failed to delete completed todos:", err);
-        addToast("Failed to delete completed todos. Please try again.", "error");
-      });
-    }
+    db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete())).then(() => {
+      addToast(`Successfully deleted ${completedTodos.length} completed todos`, "success");
+      setShowDeleteCompletedConfirm(false);
+    }).catch(err => {
+      console.error("Failed to delete completed todos:", err);
+      addToast("Failed to delete completed todos. Please try again.", "error");
+      setShowDeleteCompletedConfirm(false);
+    });
   };
 
   const startEditingTitle = () => {
@@ -525,6 +529,15 @@ function TodoListApp({
               todoList={todoList} 
               onClose={() => setShowShareModal(false)} 
               isOwner={isOwner}
+            />
+          )}
+
+          {/* Delete Completed Confirmation Modal */}
+          {showDeleteCompletedConfirm && (
+            <DeleteCompletedModal
+              todoList={todoList}
+              onClose={() => setShowDeleteCompletedConfirm(false)}
+              onConfirm={handleDeleteCompleted}
             />
           )}
 
@@ -1068,6 +1081,211 @@ function ShareModal({
   );
 }
 
+function DeleteCompletedModal({
+  todoList,
+  onClose,
+  onConfirm
+}: {
+  todoList: TodoList;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const completedTodos = todoList.todos.filter(todo => todo.done);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-60">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+        <h4 className="text-lg font-bold mb-4 text-orange-600 dark:text-orange-400">Delete Completed Todos</h4>
+        <div className="mb-6">
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            Are you sure you want to delete all completed todos?
+          </p>
+          <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded p-3">
+            <p className="text-sm text-orange-700 dark:text-orange-300 mb-2">This will permanently delete:</p>
+            <ul className="text-sm text-orange-600 dark:text-orange-400 space-y-1">
+              <li>• {completedTodos.length} completed todo{completedTodos.length !== 1 ? 's' : ''}</li>
+            </ul>
+            <p className="text-sm text-orange-700 dark:text-orange-300 mt-2 font-medium">
+              This action cannot be undone.
+            </p>
+          </div>
+        </div>
+        <div className="flex space-x-3">
+          <button
+            onClick={onConfirm}
+            className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+          >
+            Delete {completedTodos.length} Todo{completedTodos.length !== 1 ? 's' : ''}
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TransferOwnershipModal({
+  todoList, 
+  onClose, 
+  onSuccess 
+}: { 
+  todoList: TodoList; 
+  onClose: () => void; 
+  onSuccess: () => void;
+}) {
+  const [selectedMemberId, setSelectedMemberId] = useState<string>("");
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [showError, setShowError] = useState<string | null>(null);
+  const { user } = db.useAuth();
+
+  const selectedMember = todoList.members.find(member => member.id === selectedMemberId);
+
+  const handleTransfer = async () => {
+    if (!selectedMember || !user || !selectedMember.user?.id) {
+      setShowError("Invalid member selection. Please try again.");
+      console.error("Invalid member selection", { selectedMember, user });
+      return;
+    }
+
+    console.log("Transferring ownership", {
+      listId: todoList.id,
+      currentOwnerId: user.id,
+      newOwnerId: selectedMember.user.id,
+      selectedMemberId
+    });
+
+    setIsTransferring(true);
+    setShowError(null);
+
+    const success = await transferListOwnership(
+      todoList.id,
+      user.id,
+      selectedMember.user.id,
+      selectedMemberId
+    );
+
+    if (success) {
+      onSuccess();
+    } else {
+      setShowError("Failed to transfer ownership. Please try again.");
+    }
+    
+    setIsTransferring(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-60">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+        <h4 className="text-lg font-bold mb-4 text-yellow-600 dark:text-yellow-400">Transfer Ownership</h4>
+        
+        {showError && (
+          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
+            {showError}
+          </div>
+        )}
+
+        {!showConfirm ? (
+          <>
+            <div className="mb-6">
+              <p className="text-gray-600 dark:text-gray-300 mb-4">
+                Select a member to transfer ownership of "<strong>{todoList.name}</strong>" to:
+              </p>
+              
+              <div className="space-y-2">
+                {todoList.members
+                  .filter(member => member.user?.id && member.user?.email) // Only show members with valid user data
+                  .map(member => (
+                  <label key={member.id} className="flex items-center space-x-3 p-3 rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="member"
+                      value={member.id}
+                      checked={selectedMemberId === member.id}
+                      onChange={(e) => setSelectedMemberId(e.target.value)}
+                      className="w-4 h-4 text-yellow-600 focus:ring-yellow-500"
+                    />
+                    <div className="flex-1">
+                      <div className="text-gray-900 dark:text-white">
+                        {member.user?.email || "Unknown User"}
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        Member since {new Date(member.addedAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {todoList.members.filter(member => member.user?.id && member.user?.email).length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                  No valid members available. You need to invite members with confirmed accounts before you can transfer ownership.
+                </p>
+              )}
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => selectedMemberId ? setShowConfirm(true) : null}
+                disabled={!selectedMemberId}
+                className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Continue
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mb-6">
+              <p className="text-gray-600 dark:text-gray-300 mb-4">
+                Are you sure you want to transfer ownership to <strong>{selectedMember?.user?.email}</strong>?
+              </p>
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
+                <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">After this transfer:</p>
+                <ul className="text-sm text-yellow-600 dark:text-yellow-400 space-y-1">
+                  <li>• <strong>{selectedMember?.user?.email}</strong> will become the owner</li>
+                  <li>• You will become a regular member</li>
+                  <li>• Only the new owner can manage settings and members</li>
+                  <li>• This action cannot be undone without the new owner's permission</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+               
+                onClick={handleTransfer}
+                disabled={isTransferring}
+                className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isTransferring ? "Transferring..." : "Transfer Ownership"}
+              </button>
+              <button
+                onClick={() => setShowConfirm(false)}
+                disabled={isTransferring}
+                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500 disabled:opacity-50"
+              >
+                Back
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function OnlineUsersTooltip({ 
   currentUser, 
   peers, 
@@ -1474,7 +1692,7 @@ function SublistSection({
       
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
             <h4 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Delete Category</h4>
             <p className="text-gray-600 dark:text-gray-300 mb-6">
@@ -1661,163 +1879,6 @@ function ActionBar({ todoList, canWrite, deleteCompleted }: {
           Delete Completed ({completedTodos.length})
         </button>
       )}
-    </div>
-  );
-}
-
-function TransferOwnershipModal({ 
-  todoList, 
-  onClose, 
-  onSuccess 
-}: { 
-  todoList: TodoList; 
-  onClose: () => void; 
-  onSuccess: () => void;
-}) {
-  const [selectedMemberId, setSelectedMemberId] = useState<string>("");
-  const [isTransferring, setIsTransferring] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [showError, setShowError] = useState<string | null>(null);
-  const { user } = db.useAuth();
-
-  const selectedMember = todoList.members.find(member => member.id === selectedMemberId);
-
-  const handleTransfer = async () => {
-    if (!selectedMember || !user || !selectedMember.user?.id) {
-      setShowError("Invalid member selection. Please try again.");
-      console.error("Invalid member selection", { selectedMember, user });
-      return;
-    }
-
-    console.log("Transferring ownership", {
-      listId: todoList.id,
-      currentOwnerId: user.id,
-      newOwnerId: selectedMember.user.id,
-      selectedMemberId
-    });
-
-    setIsTransferring(true);
-    setShowError(null);
-
-    const success = await transferListOwnership(
-      todoList.id,
-      user.id,
-      selectedMember.user.id,
-      selectedMemberId
-    );
-
-    if (success) {
-      onSuccess();
-    } else {
-      setShowError("Failed to transfer ownership. Please try again.");
-    }
-    
-    setIsTransferring(false);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-60">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
-        <h4 className="text-lg font-bold mb-4 text-yellow-600 dark:text-yellow-400">Transfer Ownership</h4>
-        
-        {showError && (
-          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
-            {showError}
-          </div>
-        )}
-
-        {!showConfirm ? (
-          <>
-            <div className="mb-6">
-              <p className="text-gray-600 dark:text-gray-300 mb-4">
-                Select a member to transfer ownership of "<strong>{todoList.name}</strong>" to:
-              </p>
-              
-              <div className="space-y-2">
-                {todoList.members
-                  .filter(member => member.user?.id && member.user?.email) // Only show members with valid user data
-                  .map(member => (
-                  <label key={member.id} className="flex items-center space-x-3 p-3 rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="member"
-                      value={member.id}
-                      checked={selectedMemberId === member.id}
-                      onChange={(e) => setSelectedMemberId(e.target.value)}
-                      className="w-4 h-4 text-yellow-600 focus:ring-yellow-500"
-                    />
-                    <div className="flex-1">
-                      <div className="text-gray-900 dark:text-white">
-                        {member.user?.email || "Unknown User"}
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        Member since {new Date(member.addedAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-
-              {todoList.members.filter(member => member.user?.id && member.user?.email).length === 0 && (
-                <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-                  No valid members available. You need to invite members with confirmed accounts before you can transfer ownership.
-                </p>
-              )}
-            </div>
-
-            <div className="flex space-x-3">
-              <button
-                onClick={() => selectedMemberId ? setShowConfirm(true) : null}
-                disabled={!selectedMemberId}
-                className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                Continue
-              </button>
-              <button
-                onClick={onClose}
-                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-              >
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="mb-6">
-              <p className="text-gray-600 dark:text-gray-300 mb-4">
-                Are you sure you want to transfer ownership to <strong>{selectedMember?.user?.email}</strong>?
-              </p>
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
-                <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">After this transfer:</p>
-                <ul className="text-sm text-yellow-600 dark:text-yellow-400 space-y-1">
-                  <li>• <strong>{selectedMember?.user?.email}</strong> will become the owner</li>
-                  <li>• You will become a regular member</li>
-                  <li>• Only the new owner can manage settings and members</li>
-                  <li>• This action cannot be undone without the new owner's permission</li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="flex space-x-3">
-              <button
-               
-                onClick={handleTransfer}
-                disabled={isTransferring}
-                className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isTransferring ? "Transferring..." : "Transfer Ownership"}
-              </button>
-              <button
-                onClick={() => setShowConfirm(false)}
-                disabled={isTransferring}
-                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500 disabled:opacity-50"
-              >
-                Back
-              </button>
-            </div>
-          </>
-        )}
-      </div>
     </div>
   );
 }
