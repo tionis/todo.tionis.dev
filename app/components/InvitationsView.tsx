@@ -67,6 +67,37 @@ export default function InvitationsView({}: InvitationsViewProps) {
     setFeedback(null);
     
     try {
+      // Handle the list relationship which might be an array
+      const listData = Array.isArray(invitation.list) ? invitation.list[0] : invitation.list;
+      
+      // The invited user might not have permission to see list details yet
+      // In this case, we can still create the membership using the invitation's list reference
+      let listId = listData?.id;
+      let listName = listData?.name || "Unknown List";
+      let listSlug = listData?.slug;
+      
+      if (!listId) {
+        console.warn("Cannot access list data, likely due to permissions. Using alternative approach.");
+        
+        // In this case, we'll need to work with what we have in the invitation
+        // The invitation should have a list reference even if we can't expand it
+        
+        // Check if there's a direct list property with just an ID
+        if (invitation.list && typeof invitation.list === 'string') {
+          listId = invitation.list;
+        } else if (invitation.list && typeof invitation.list === 'object' && !Array.isArray(invitation.list) && invitation.list.id) {
+          listId = invitation.list.id;
+        }
+        
+        if (!listId) {
+          throw new Error("Unable to determine list ID from invitation. The invitation may be corrupted or you may not have permission to access the list.");
+        }
+      }
+      
+      if (!listId) {
+        throw new Error("Failed to determine list ID - cannot proceed with invitation acceptance");
+      }
+      
       // Create member record and update invitation status
       await db.transact([
         db.tx.listMembers[id()]
@@ -76,7 +107,7 @@ export default function InvitationsView({}: InvitationsViewProps) {
           })
           .link({ 
             user: user.id,
-            list: invitation.list.id 
+            list: listId 
           }),
         db.tx.invitations[invitation.id].update({
           status: 'accepted'
@@ -85,12 +116,17 @@ export default function InvitationsView({}: InvitationsViewProps) {
       
       setFeedback({
         type: 'success',
-        message: `Successfully joined "${invitation.list.name}"!`
+        message: `Successfully joined "${listName}"!`
       });
       
       // Auto-hide success message and redirect after 2 seconds
       setTimeout(() => {
-        window.location.hash = `/list/${invitation.list.slug}`;
+        if (listSlug) {
+          window.location.hash = `/list/${listSlug}`;
+        } else {
+          // If we don't have the slug, just go back to home
+          window.location.hash = '';
+        }
       }, 2000);
       
     } catch (err) {
@@ -115,9 +151,12 @@ export default function InvitationsView({}: InvitationsViewProps) {
         })
       );
       
+      // Handle the list relationship which might be an array
+      const listData = Array.isArray(invitation.list) ? invitation.list[0] : invitation.list;
+      
       setFeedback({
         type: 'success',
-        message: `Declined invitation to "${invitation.list.name}".`
+        message: `Declined invitation to "${listData?.name || 'Unknown List'}".`
       });
       
     } catch (err) {
@@ -188,7 +227,11 @@ export default function InvitationsView({}: InvitationsViewProps) {
               Pending Invitations ({invitations.length})
             </h2>
             
-            {invitations.map((invitation) => (
+            {invitations.map((invitation) => {
+              // Handle the list relationship which might be an array
+              const listData = Array.isArray(invitation.list) ? invitation.list[0] : invitation.list;
+              
+              return (
               <div
                 key={invitation.id}
                 className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6"
@@ -196,12 +239,15 @@ export default function InvitationsView({}: InvitationsViewProps) {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                      {invitation.list?.name || 'Unknown List'}
+                      {listData?.name || 'Unknown List'}
                     </h3>
                     <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
                       <p>
                         <span className="font-medium">Invited by:</span>{' '}
-                        {invitation.inviter?.email || 'Unknown'}
+                        {(() => {
+                          const inviterUser = Array.isArray(invitation.inviter) ? invitation.inviter[0] : invitation.inviter;
+                          return inviterUser?.email || 'Unknown';
+                        })()}
                       </p>
                       <p>
                         <span className="font-medium">Role:</span>{' '}
@@ -232,7 +278,8 @@ export default function InvitationsView({}: InvitationsViewProps) {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

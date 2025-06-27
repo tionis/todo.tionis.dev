@@ -3,7 +3,6 @@
 import type { InstantRules } from "@instantdb/react";
 
 const rules = {
-  // Temporarily more permissive for debugging
   attrs: {
     allow: {
       $default: "false", // Don't allow creating new attributes in production
@@ -13,7 +12,7 @@ const rules = {
   // Todo lists are the main entities that control access
   todoLists: {
     allow: {
-      view: "data.permission == 'public-read' || data.permission == 'public-write' || (auth.id != null && (data.permission == 'private-read' || data.permission == 'private-write') && (auth.id in data.ref('owner.id') || auth.id in data.ref('members.user.id')))",
+      view: "data.permission == 'public-read' || data.permission == 'public-write' || (auth.id != null && (data.permission == 'private-read' || data.permission == 'private-write') && (auth.id in data.ref('owner.id') || auth.id in data.ref('members.user.id'))) || (auth.id != null && auth.email in data.ref('invitations.email'))",
       create: "auth.id != null",
       update: "auth.id != null && auth.id in data.ref('owner.id')",
       delete: "auth.id != null && auth.id in data.ref('owner.id')",
