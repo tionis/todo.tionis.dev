@@ -21,7 +21,7 @@ This is a modern, collaborative todo list application built with Next.js 15 and 
 - **Offline-First**: InstantDB provides offline support with sync when online
 - **PWA**: Installable as native app with proper manifest and service worker
 - **Magic Link Auth**: Passwordless authentication via email codes
-- **Dark Mode**: Toggle with Ctrl+Shift+D
+- **Dark Mode**: Automatically follows system theme preference
 
 ## Database Schema (InstantDB)
 

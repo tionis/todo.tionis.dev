@@ -10,7 +10,7 @@ A modern, collaborative todo list application built with Next.js and InstantDB. 
 - **Invitation System**: Invite collaborators via email with role-based permissions
 - **Offline Support**: Works offline with data synchronization when back online
 - **PWA Support**: Installable as a native app on mobile and desktop
-- **Dark Mode**: Toggle between light and dark themes (Ctrl+Shift+D)
+- **Dark Mode**: Automatically follows system theme preference
 - **Magic Link Authentication**: Secure, passwordless login system
 
 ## Getting Started

@@ -3,7 +3,7 @@
       as soon as they are members only "Unknown User" is shown. I think this might be related to the query not following the link correctly
 - [x] fix invitedBy email field in invitation on invitation page
       this might be a similar issue as the one with the member emails. Invites only show 'Invited by: Unknown'. This is also a link to a user entity and thus might be related
-- [ ] fix dark mode toggle 
+- [x] fix dark mode toggle 
       the toggle in the top right doesn't correctly switch the themes, even though changing system mode works
       the toggle only changes some text from dark to light
 - [ ] mobile improvements
