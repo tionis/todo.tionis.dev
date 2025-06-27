@@ -8,6 +8,7 @@ import { copyToClipboard, getListUrl } from "../../lib/utils";
 import { executeTransaction, canUserWrite, canUserView } from "../../lib/transactions";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorDisplay from "../components/ErrorDisplay";
+import { useToast } from "../components/Toast";
 import type { AppSchema } from "../../lib/db";
 
 type TodoList = InstaQLEntity<AppSchema, "todoLists", { 
@@ -37,6 +38,39 @@ export default function TodoListPage() {
       invitations: {}
     } 
   });
+  const { addToast } = useToast();
+
+  // Helper functions that use toast notifications
+  const toggleTodo = async (todo: Todo) => {
+    const success = await executeTransaction(
+      db.tx.todos[todo.id].update({
+        done: !todo.done,
+        updatedAt: new Date().toISOString()
+      }),
+      "Failed to update todo"
+    );
+    
+    if (!success) {
+      console.error("Failed to update todo");
+      addToast("Failed to update todo. Please try again.", "error");
+    } else {
+      addToast(todo.done ? "Todo marked as incomplete" : "Todo completed!", "success");
+    }
+  };
+
+  const deleteTodo = async (todo: Todo) => {
+    const success = await executeTransaction(
+      db.tx.todos[todo.id].delete(),
+      "Failed to delete todo"
+    );
+    
+    if (!success) {
+      console.error("Failed to delete todo");
+      addToast("Failed to delete todo. Please try again.", "error");
+    } else {
+      addToast("Todo deleted successfully", "success");
+    }
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -132,6 +166,9 @@ export default function TodoListPage() {
       isOwner={!!isOwner} 
       canWrite={!!canWrite}
       autoAcceptStatus={autoAcceptStatus}
+      toggleTodo={toggleTodo}
+      deleteTodo={deleteTodo}
+      addToast={addToast}
     />
   );
 }
@@ -266,7 +303,10 @@ function TodoListApp({
   user, 
   isOwner, 
   canWrite,
-  autoAcceptStatus
+  autoAcceptStatus,
+  toggleTodo,
+  deleteTodo,
+  addToast
 }: { 
   todoList: TodoList; 
   user: User | null; 
@@ -277,6 +317,9 @@ function TodoListApp({
     accepted: boolean;
     error: string | null;
   };
+  toggleTodo: (todo: Todo) => void;
+  deleteTodo: (todo: Todo) => void;
+  addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const router = useRouter();
   const room = db.room("todoList", todoList.slug);
@@ -298,6 +341,21 @@ function TodoListApp({
   const completedUncategorizedTodos = todosWithoutSublist.filter(todo => todo.done);
 
   const sublists = todoList.sublists.sort((a, b) => a.order - b.order);
+
+  const deleteCompleted = (completedTodos: Todo[]) => {
+    if (completedTodos.length === 0) return;
+    
+    // This would ideally be a confirmation modal too, but for now keeping it simple
+    // since it's a less critical action
+    if (confirm(`Delete ${completedTodos.length} completed todos?`)) {
+      db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete())).then(() => {
+        addToast(`Successfully deleted ${completedTodos.length} completed todos`, "success");
+      }).catch(err => {
+        console.error("Failed to delete completed todos:", err);
+        addToast("Failed to delete completed todos. Please try again.", "error");
+      });
+    }
+  };
 
   return (
     <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
@@ -397,6 +455,8 @@ function TodoListApp({
             todoList={todoList}
             canWrite={canWrite}
             isOwner={isOwner}
+            toggleTodo={toggleTodo}
+            deleteTodo={deleteTodo}
           />
         ))}
 
@@ -410,7 +470,7 @@ function TodoListApp({
               Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
             </div>
             {visibleTodos.length > 0 && (
-              <TodoListComponent todos={visibleTodos} canWrite={canWrite} />
+              <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
             )}
             {todoList.hideCompleted && !showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
               <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
@@ -434,13 +494,13 @@ function TodoListApp({
                     <span>Hide completed items</span>
                   </button>
                 </div>
-                <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} />
+                <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
               </div>
             )}
           </div>
         )}
         
-        <ActionBar todoList={todoList} canWrite={canWrite} />
+        <ActionBar todoList={todoList} canWrite={canWrite} deleteCompleted={deleteCompleted} />
         </div>
         </div>
       </div>
@@ -1008,7 +1068,12 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
   );
 }
 
-function TodoListComponent({ todos, canWrite }: { todos: Todo[]; canWrite: boolean }) {
+function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: { 
+  todos: Todo[]; 
+  canWrite: boolean;
+  toggleTodo: (todo: Todo) => void;
+  deleteTodo: (todo: Todo) => void;
+}) {
   const sortedTodos = [...todos].sort((a, b) => (a.order || 0) - (b.order || 0));
 
   return (
@@ -1049,12 +1114,16 @@ function SublistSection({
   sublist, 
   todoList, 
   canWrite, 
-  isOwner 
+  isOwner,
+  toggleTodo,
+  deleteTodo
 }: { 
   sublist: Sublist; 
   todoList: TodoList; 
   canWrite: boolean; 
   isOwner: boolean;
+  toggleTodo: (todo: Todo) => void;
+  deleteTodo: (todo: Todo) => void;
 }) {
   const [showCompletedInSublist, setShowCompletedInSublist] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1100,7 +1169,7 @@ function SublistSection({
         )}
       </div>
       {visibleTodos.length > 0 && (
-        <TodoListComponent todos={visibleTodos} canWrite={canWrite} />
+        <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
       )}
       {todoList.hideCompleted && !showCompletedInSublist && completedTodos.length > 0 && (
         <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
@@ -1124,7 +1193,7 @@ function SublistSection({
               <span>Hide completed items</span>
             </button>
           </div>
-          <TodoListComponent todos={completedTodos} canWrite={canWrite} />
+          <TodoListComponent todos={completedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
         </div>
       )}
       {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
@@ -1299,7 +1368,11 @@ function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist?: Sub
   );
 }
 
-function ActionBar({ todoList, canWrite }: { todoList: TodoList; canWrite: boolean }) {
+function ActionBar({ todoList, canWrite, deleteCompleted }: { 
+  todoList: TodoList; 
+  canWrite: boolean;
+  deleteCompleted: (completedTodos: Todo[]) => void;
+}) {
   const remainingCount = todoList.todos.filter(todo => !todo.done).length;
   const completedTodos = todoList.todos.filter(todo => todo.done);
 
@@ -1316,45 +1389,4 @@ function ActionBar({ todoList, canWrite }: { todoList: TodoList; canWrite: boole
       )}
     </div>
   );
-}
-
-// Helper functions
-async function toggleTodo(todo: Todo) {
-  const success = await executeTransaction(
-    db.tx.todos[todo.id].update({ 
-      done: !todo.done,
-      updatedAt: new Date().toISOString()
-    }),
-    "Failed to update todo"
-  );
-  
-  if (!success) {
-    console.error("Failed to update todo");
-    // TODO: Add toast notification for better UX
-  }
-}
-
-async function deleteTodo(todo: Todo) {
-  const success = await executeTransaction(
-    db.tx.todos[todo.id].delete(),
-    "Failed to delete todo"
-  );
-  
-  if (!success) {
-    console.error("Failed to delete todo");
-    // TODO: Add toast notification for better UX
-  }
-}
-
-function deleteCompleted(completedTodos: Todo[]) {
-  if (completedTodos.length === 0) return;
-  
-  // This would ideally be a confirmation modal too, but for now keeping it simple
-  // since it's a less critical action
-  if (confirm(`Delete ${completedTodos.length} completed todos?`)) {
-    db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete())).catch(err => {
-      console.error("Failed to delete completed todos:", err);
-      // Could add a toast notification here instead of alert
-    });
-  }
 }
