@@ -8,6 +8,7 @@ import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
 import { executeTransaction, canUserWrite, canUserView } from "../lib/transactions";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
+import Modal from "./components/Modal";
 import { useHashRouter } from "./components/HashRouter";
 import TodoListView from "./components/TodoListView";
 import InvitationsView from "./components/InvitationsView";
@@ -350,50 +351,46 @@ function ShareModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-md w-full mx-4">
-        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Share "{list.name}"</h3>
-        
-        <div className="space-y-4">
-          {showError && (
-            <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
-              {showError}
-            </div>
-          )}
-          
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Share URL</label>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={listUrl}
-                readOnly
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-white"
-              />
-              <button
-                onClick={handleCopy}
-                className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-              >
-                {copied ? "Copied!" : "Copy"}
-              </button>
-            </div>
+    <Modal onClose={onClose} title={`Share "${list.name}"`}>
+      <div className="space-y-4">
+        {showError && (
+          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+            {showError}
           </div>
-          
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Permission: <strong className="text-gray-900 dark:text-white">{list.permission}</strong>
-          </p>
+        )}
+        
+        <div>
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Share URL</label>
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={listUrl}
+              readOnly
+              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-white"
+            />
+            <button
+              onClick={handleCopy}
+              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </div>
         </div>
-
-        <div className="flex justify-end mt-6">
-          <button
-            onClick={onClose}
-            className="bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-          >
-            Close
-          </button>
-        </div>
+        
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Permission: <strong className="text-gray-900 dark:text-white">{list.permission}</strong>
+        </p>
       </div>
-    </div>
+
+      <div className="flex justify-end mt-6">
+        <button
+          onClick={onClose}
+          className="bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+        >
+          Close
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -509,42 +506,39 @@ function CreateListModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
-        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Create New List</h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-              List Name
-            </label>
-            <input
-              type="text"
-              value={listName}
-              onChange={(e) => setListName(e.target.value)}
-              placeholder="Enter list name"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-              autoFocus
-            />
-          </div>
-          <div className="flex space-x-3">
-            <button
-              type="submit"
-              disabled={!listName.trim()}
-              className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Create List
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <Modal onClose={onClose} title="Create New List">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+            List Name
+          </label>
+          <input
+            type="text"
+            value={listName}
+            onChange={(e) => setListName(e.target.value)}
+            placeholder="Enter list name"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+            autoFocus
+          />
+        </div>
+        <div className="flex space-x-3">
+          <button
+            type="submit"
+            disabled={!listName.trim()}
+            className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Create List
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -560,43 +554,37 @@ function ConfirmDeleteModal({
   onCancel: () => void; 
 }) {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
-        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">{title}</h3>
-        <p className="text-gray-600 dark:text-gray-300 mb-6">{message}</p>
-        <div className="flex space-x-3">
-          <button
-            onClick={onConfirm}
-            className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
-          >
-            Delete
-          </button>
-          <button
-            onClick={onCancel}
-            className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-          >
-            Cancel
-          </button>
-        </div>
+    <Modal onClose={onCancel} title={title}>
+      <p className="text-gray-600 dark:text-gray-300 mb-6">{message}</p>
+      <div className="flex space-x-3">
+        <button
+          onClick={onConfirm}
+          className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+        >
+          Delete
+        </button>
+        <button
+          onClick={onCancel}
+          className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+        >
+          Cancel
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
 function ErrorModal({ message, onClose }: { message: string; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
-        <h3 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Error</h3>
-        <p className="text-gray-600 dark:text-gray-300 mb-6">{message}</p>
-        <button
-          onClick={onClose}
-          className="w-full bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-        >
-          Close
-        </button>
-      </div>
-    </div>
+    <Modal onClose={onClose} title="Error">
+      <p className="text-gray-600 dark:text-gray-300 mb-6">{message}</p>
+      <button
+        onClick={onClose}
+        className="w-full bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+      >
+        Close
+      </button>
+    </Modal>
   );
 }
 

@@ -7,6 +7,7 @@ import { copyToClipboard, getListUrl } from "../../lib/utils";
 import { executeTransaction, canUserWrite, canUserView, transferListOwnership } from "../../lib/transactions";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
+import Modal from './Modal';
 import { useToast } from './Toast';
 import type { AppSchema } from "../../lib/db";
 
@@ -665,119 +666,115 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">List Settings</h3>
+    <Modal onClose={onClose} title="List Settings" maxWidth="lg">
+      {showError && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
+          {showError}
+        </div>
+      )}
+      
+      <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+        <div>
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">List Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Permissions</label>
+          <select
+            value={permission}
+            onChange={(e) => setPermission(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          >
+            <option value="public-write">Public Write - Anyone can edit</option>
+            <option value="public-read">Public Read - Anyone can view</option>
+            <option value="private-write">Private Write - Members can edit</option>
+            <option value="private-read">Private Read - Members can view</option>
+            <option value="owner">Owner Only - Only you can access</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={hideCompleted}
+              onChange={(e) => setHideCompleted(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">Hide completed todos</span>
+          </label>
+        </div>
+      </div>
+
+      <div className="flex space-x-3 mt-6">
+        <button
+          onClick={handleSave}
+          className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
+        >
+          Save Changes
+        </button>
+        <button
+          onClick={onClose}
+          className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+        >
+          Cancel
+        </button>
+      </div>
+
+      {/* Danger Zone */}
+      <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
+        <h4 className="text-sm font-medium text-red-600 dark:text-red-400 mb-3">Advanced Actions</h4>
         
-        {showError && (
-          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
-            {showError}
+        {/* Transfer Ownership */}
+        {todoList.members.filter(member => member.user?.id && member.user?.email).length > 0 && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <span className="text-yellow-500 text-lg">👑</span>
+              </div>
+              <div className="flex-1">
+                <h5 className="text-sm font-medium text-yellow-800 dark:text-yellow-300 mb-1">
+                  Transfer ownership
+                </h5>
+                <p className="text-xs text-yellow-700 dark:text-yellow-400 mb-3">
+                  Transfer ownership of this list to another member. You will become a regular member.
+                </p>
+                <button
+                  onClick={() => setShowTransferOwnership(true)}
+                  className="text-sm bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500 transition-colors"
+                >
+                  Transfer Ownership
+                </button>
+              </div>
+            </div>
           </div>
         )}
         
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">List Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Permissions</label>
-            <select
-              value={permission}
-              onChange={(e) => setPermission(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="public-write">Public Write - Anyone can edit</option>
-              <option value="public-read">Public Read - Anyone can view</option>
-              <option value="private-write">Private Write - Members can edit</option>
-              <option value="private-read">Private Read - Members can view</option>
-              <option value="owner">Owner Only - Only you can access</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={hideCompleted}
-                onChange={(e) => setHideCompleted(e.target.checked)}
-                className="rounded"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Hide completed todos</span>
-            </label>
-          </div>
-        </div>
-
-        <div className="flex space-x-3 mt-6">
-          <button
-            onClick={handleSave}
-            className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
-          >
-            Save Changes
-          </button>
-          <button
-            onClick={onClose}
-            className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-          >
-            Cancel
-          </button>
-        </div>
-
-        {/* Danger Zone */}
-        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
-          <h4 className="text-sm font-medium text-red-600 dark:text-red-400 mb-3">Advanced Actions</h4>
-          
-          {/* Transfer Ownership */}
-          {todoList.members.filter(member => member.user?.id && member.user?.email).length > 0 && (
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4">
-              <div className="flex items-start space-x-3">
-                <div className="flex-shrink-0">
-                  <span className="text-yellow-500 text-lg">👑</span>
-                </div>
-                <div className="flex-1">
-                  <h5 className="text-sm font-medium text-yellow-800 dark:text-yellow-300 mb-1">
-                    Transfer ownership
-                  </h5>
-                  <p className="text-xs text-yellow-700 dark:text-yellow-400 mb-3">
-                    Transfer ownership of this list to another member. You will become a regular member.
-                  </p>
-                  <button
-                    onClick={() => setShowTransferOwnership(true)}
-                    className="text-sm bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500 transition-colors"
-                  >
-                    Transfer Ownership
-                  </button>
-                </div>
-              </div>
+        {/* Delete List */}
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <div className="flex-shrink-0">
+              <span className="text-red-500 text-lg">⚠️</span>
             </div>
-          )}
-          
-          {/* Delete List */}
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <div className="flex items-start space-x-3">
-              <div className="flex-shrink-0">
-                <span className="text-red-500 text-lg">⚠️</span>
-              </div>
-              <div className="flex-1">
-                <h5 className="text-sm font-medium text-red-800 dark:text-red-300 mb-1">
-                  Delete this list
-                </h5>
-                <p className="text-xs text-red-700 dark:text-red-400 mb-3">
-                  Permanently delete this list, all todos, categories, and member access. This action cannot be undone.
-                </p>
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="text-sm bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors"
-                >
-                  Delete List Forever
-                </button>
-              </div>
+            <div className="flex-1">
+              <h5 className="text-sm font-medium text-red-800 dark:text-red-300 mb-1">
+                Delete this list
+              </h5>
+              <p className="text-xs text-red-700 dark:text-red-400 mb-3">
+                Permanently delete this list, all todos, categories, and member access. This action cannot be undone.
+              </p>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="text-sm bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors"
+              >
+                Delete List Forever
+              </button>
             </div>
           </div>
         </div>
@@ -785,45 +782,42 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-60">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
-            <h4 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Delete List</h4>
-            <div className="mb-6">
-              <p className="text-gray-600 dark:text-gray-300 mb-4">
-                Are you sure you want to delete "<strong>{todoList.name}</strong>"?
+        <Modal onClose={() => setShowDeleteConfirm(false)} title="Delete List">
+          <div className="mb-6">
+            <p className="text-gray-600 dark:text-gray-300 mb-4">
+              Are you sure you want to delete "<strong>{todoList.name}</strong>"?
+            </p>
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3">
+              <p className="text-sm text-red-700 dark:text-red-300 mb-2">This will permanently delete:</p>
+              <ul className="text-sm text-red-600 dark:text-red-400 space-y-1">
+                <li>• The list and all its settings</li>
+                <li>• All {todoList.todos.length} todos</li>
+                <li>• All {todoList.sublists.length} categories</li>
+                <li>• All member access</li>
+              </ul>
+              <p className="text-sm text-red-700 dark:text-red-300 mt-2 font-medium">
+                This action cannot be undone.
               </p>
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3">
-                <p className="text-sm text-red-700 dark:text-red-300 mb-2">This will permanently delete:</p>
-                <ul className="text-sm text-red-600 dark:text-red-400 space-y-1">
-                  <li>• The list and all its settings</li>
-                  <li>• All {todoList.todos.length} todos</li>
-                  <li>• All {todoList.sublists.length} categories</li>
-                  <li>• All member access</li>
-                </ul>
-                <p className="text-sm text-red-700 dark:text-red-300 mt-2 font-medium">
-                  This action cannot be undone.
-                </p>
-              </div>
-            </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                  handleDelete();
-                }}
-                className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
-              >
-                Delete Forever
-              </button>
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-              >
-                Cancel
-              </button>
             </div>
           </div>
-        </div>
+          <div className="flex space-x-3">
+            <button
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                handleDelete();
+              }}
+              className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+            >
+              Delete Forever
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Transfer Ownership Modal */}
@@ -837,7 +831,7 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
           }}
         />
       )}
-    </div>
+    </Modal>
   );
 }
 
@@ -949,144 +943,140 @@ function ShareModal({
   const pendingInvitations = todoList.invitations.filter(inv => inv.status === 'pending');
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-lg max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
-        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Share "{todoList.name}"</h3>
-        
-        <div className="space-y-4">
-          {/* Success Message */}
-          {showSuccess && (
-            <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded">
-              {showSuccess}
-            </div>
-          )}
-
-          {/* Error Message */}
-          {showError && (
-            <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
-              {showError}
-            </div>
-          )}
-
-          {/* Share URL */}
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Share URL</label>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={listUrl}
-                readOnly
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-              />
-              <button
-                onClick={handleCopy}
-                className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-              >
-                {copied ? "Copied!" : "Copy"}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Anyone with this URL can access the list based on its permission settings
-            </p>
+    <Modal onClose={onClose} title={`Share "${todoList.name}"`} maxWidth="md">
+      <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+        {/* Success Message */}
+        {showSuccess && (
+          <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded">
+            {showSuccess}
           </div>
+        )}
 
-          {isOwner && (
-            <>
-              {/* Send Invitation */}
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Invite New Member</label>
-                <div className="space-y-2">
-                  <div className="flex space-x-2">
-                    <input
-                      type="email"
-                      value={newMemberEmail}
-                      onChange={(e) => setNewMemberEmail(e.target.value)}
-                      placeholder="Enter email address"
-                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                      disabled={isInviting}
-                    />
-                    <button
-                      onClick={sendInvitation}
-                      disabled={isInviting || !newMemberEmail.trim()}
-                      className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isInviting ? "Sending..." : "Invite"}
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Sends an invitation and grants access to this list
-                  </p>
+        {/* Error Message */}
+        {showError && (
+          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+            {showError}
+          </div>
+        )}
+
+        {/* Share URL */}
+        <div>
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Share URL</label>
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={listUrl}
+              readOnly
+              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            />
+            <button
+              onClick={handleCopy}
+              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Anyone with this URL can access the list based on its permission settings
+          </p>
+        </div>
+
+        {isOwner && (
+          <>
+            {/* Send Invitation */}
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Invite New Member</label>
+              <div className="space-y-2">
+                <div className="flex space-x-2">
+                  <input
+                    type="email"
+                    value={newMemberEmail}
+                    onChange={(e) => setNewMemberEmail(e.target.value)}
+                    placeholder="Enter email address"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                    disabled={isInviting}
+                  />
+                  <button
+                    onClick={sendInvitation}
+                    disabled={isInviting || !newMemberEmail.trim()}
+                    className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isInviting ? "Sending..." : "Invite"}
+                  </button>
                 </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Sends an invitation and grants access to this list
+                </p>
               </div>
+            </div>
 
-              {/* Pending Invitations */}
-              {pendingInvitations.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Pending Invitations</label>
-                  <div className="space-y-2 max-h-24 overflow-y-auto">
-                    {pendingInvitations.map(invitation => (
-                      <div key={invitation.id} className="flex items-center justify-between py-1">
-                        <span className="text-sm text-gray-900 dark:text-white">{invitation.email}</span>
-                        <button
-                          onClick={() => revokeInvitation(invitation.id)}
-                          className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
-                        >
-                          Revoke
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Current Members */}
+            {/* Pending Invitations */}
+            {pendingInvitations.length > 0 && (
               <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Current Members</label>
-                <div className="space-y-2 max-h-32 overflow-y-auto">
-                  {todoList.members.map(member => (
-                    <div key={member.id} className="flex items-center justify-between py-1">
-                      <span className="text-sm text-gray-900 dark:text-white">{member.user?.email || 'Unknown User'}</span>
+                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Pending Invitations</label>
+                <div className="space-y-2 max-h-24 overflow-y-auto">
+                  {pendingInvitations.map(invitation => (
+                    <div key={invitation.id} className="flex items-center justify-between py-1">
+                      <span className="text-sm text-gray-900 dark:text-white">{invitation.email}</span>
                       <button
-                        onClick={() => removeMember(member.id)}
+                        onClick={() => revokeInvitation(invitation.id)}
                         className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
                       >
-                        Remove
+                        Revoke
                       </button>
                     </div>
                   ))}
-                  {todoList.members.length === 0 && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400">No members added</p>
-                  )}
                 </div>
               </div>
-            </>
-          )}
+            )}
 
-          {/* Permission Info */}
-          <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              <strong className="text-gray-900 dark:text-white">Current Permission:</strong> {todoList.permission}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {todoList.permission === 'public-write' && "Anyone with the URL can view and edit"}
-              {todoList.permission === 'public-read' && "Anyone with the URL can view, but only members can edit"}
-              {todoList.permission === 'private-write' && "Only invited members can view and edit"}
-              {todoList.permission === 'private-read' && "Only invited members can view and edit"}
-              {todoList.permission === 'owner' && "Only you can access this list"}
-            </p>
-          </div>
-        </div>
+            {/* Current Members */}
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Current Members</label>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {todoList.members.map(member => (
+                  <div key={member.id} className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-900 dark:text-white">{member.user?.email || 'Unknown User'}</span>
+                    <button
+                      onClick={() => removeMember(member.id)}
+                      className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {todoList.members.length === 0 && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No members added</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
-        <div className="flex justify-end mt-6">
-          <button
-            onClick={onClose}
-            className="bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-          >
-            Close
-          </button>
+        {/* Permission Info */}
+        <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            <strong className="text-gray-900 dark:text-white">Current Permission:</strong> {todoList.permission}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {todoList.permission === 'public-write' && "Anyone with the URL can view and edit"}
+            {todoList.permission === 'public-read' && "Anyone with the URL can view, but only members can edit"}
+            {todoList.permission === 'private-write' && "Only invited members can view and edit"}
+            {todoList.permission === 'private-read' && "Only invited members can view and edit"}
+            {todoList.permission === 'owner' && "Only you can access this list"}
+          </p>
         </div>
       </div>
-    </div>
+
+      <div className="flex justify-end mt-6">
+        <button
+          onClick={onClose}
+          className="bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+        >
+          Close
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -1102,39 +1092,36 @@ function DeleteCompletedModal({
   const completedTodos = todoList.todos.filter(todo => todo.done);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-60">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
-        <h4 className="text-lg font-bold mb-4 text-orange-600 dark:text-orange-400">Delete Completed Todos</h4>
-        <div className="mb-6">
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
-            Are you sure you want to delete all completed todos?
+    <Modal onClose={onClose} title="Delete Completed Todos">
+      <div className="mb-6">
+        <p className="text-gray-600 dark:text-gray-300 mb-4">
+          Are you sure you want to delete all completed todos?
+        </p>
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded p-3">
+          <p className="text-sm text-orange-700 dark:text-orange-300 mb-2">This will permanently delete:</p>
+          <ul className="text-sm text-orange-600 dark:text-orange-400 space-y-1">
+            <li>• {completedTodos.length} completed todo{completedTodos.length !== 1 ? 's' : ''}</li>
+          </ul>
+          <p className="text-sm text-orange-700 dark:text-orange-300 mt-2 font-medium">
+            This action cannot be undone.
           </p>
-          <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded p-3">
-            <p className="text-sm text-orange-700 dark:text-orange-300 mb-2">This will permanently delete:</p>
-            <ul className="text-sm text-orange-600 dark:text-orange-400 space-y-1">
-              <li>• {completedTodos.length} completed todo{completedTodos.length !== 1 ? 's' : ''}</li>
-            </ul>
-            <p className="text-sm text-orange-700 dark:text-orange-300 mt-2 font-medium">
-              This action cannot be undone.
-            </p>
-          </div>
-        </div>
-        <div className="flex space-x-3">
-          <button
-            onClick={onConfirm}
-            className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
-          >
-            Delete {completedTodos.length} Todo{completedTodos.length !== 1 ? 's' : ''}
-          </button>
-          <button
-            onClick={onClose}
-            className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-          >
-            Cancel
-          </button>
         </div>
       </div>
-    </div>
+      <div className="flex space-x-3">
+        <button
+          onClick={onConfirm}
+          className="flex-1 bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+        >
+          Delete {completedTodos.length} Todo{completedTodos.length !== 1 ? 's' : ''}
+        </button>
+        <button
+          onClick={onClose}
+          className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+        >
+          Cancel
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -1182,109 +1169,104 @@ function TransferOwnershipModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-60">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
-        <h4 className="text-lg font-bold mb-4 text-yellow-600 dark:text-yellow-400">Transfer Ownership</h4>
-        
-        {showError && (
-          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
-            {showError}
-          </div>
-        )}
+    <Modal onClose={onClose} title="Transfer Ownership">
+      {showError && (
+        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
+          {showError}
+        </div>
+      )}
 
-        {!showConfirm ? (
-          <>
-            <div className="mb-6">
-              <p className="text-gray-600 dark:text-gray-300 mb-4">
-                Select a member to transfer ownership of "<strong>{todoList.name}</strong>" to:
-              </p>
-              
-              <div className="space-y-2">
-                {todoList.members
-                  .filter(member => member.user?.id && member.user?.email) // Only show members with valid user data
-                  .map(member => (
-                  <label key={member.id} className="flex items-center space-x-3 p-3 rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="member"
-                      value={member.id}
-                      checked={selectedMemberId === member.id}
-                      onChange={(e) => setSelectedMemberId(e.target.value)}
-                      className="w-4 h-4 text-yellow-600 focus:ring-yellow-500"
-                    />
-                    <div className="flex-1">
-                      <div className="text-gray-900 dark:text-white">
-                        {member.user?.email || "Unknown User"}
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        Member since {new Date(member.addedAt).toLocaleDateString()}
-                      </div>
+      {!showConfirm ? (
+        <>
+          <div className="mb-6">
+            <p className="text-gray-600 dark:text-gray-300 mb-4">
+              Select a member to transfer ownership of "<strong>{todoList.name}</strong>" to:
+            </p>
+            
+            <div className="space-y-2">
+              {todoList.members
+                .filter(member => member.user?.id && member.user?.email) // Only show members with valid user data
+                .map(member => (
+                <label key={member.id} className="flex items-center space-x-3 p-3 rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="member"
+                    value={member.id}
+                    checked={selectedMemberId === member.id}
+                    onChange={(e) => setSelectedMemberId(e.target.value)}
+                    className="w-4 h-4 text-yellow-600 focus:ring-yellow-500"
+                  />
+                  <div className="flex-1">
+                    <div className="text-gray-900 dark:text-white">
+                      {member.user?.email || "Unknown User"}
                     </div>
-                  </label>
-                ))}
-              </div>
-
-              {todoList.members.filter(member => member.user?.id && member.user?.email).length === 0 && (
-                <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-                  No valid members available. You need to invite members with confirmed accounts before you can transfer ownership.
-                </p>
-              )}
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      Member since {new Date(member.addedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                </label>
+              ))}
             </div>
 
-            <div className="flex space-x-3">
-              <button
-                onClick={() => selectedMemberId ? setShowConfirm(true) : null}
-                disabled={!selectedMemberId}
-                className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                Continue
-              </button>
-              <button
-                onClick={onClose}
-                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-              >
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="mb-6">
-              <p className="text-gray-600 dark:text-gray-300 mb-4">
-                Are you sure you want to transfer ownership to <strong>{selectedMember?.user?.email}</strong>?
+            {todoList.members.filter(member => member.user?.id && member.user?.email).length === 0 && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                No valid members available. You need to invite members with confirmed accounts before you can transfer ownership.
               </p>
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
-                <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">After this transfer:</p>
-                <ul className="text-sm text-yellow-600 dark:text-yellow-400 space-y-1">
-                  <li>• <strong>{selectedMember?.user?.email}</strong> will become the owner</li>
-                  <li>• You will become a regular member</li>
-                  <li>• Only the new owner can manage settings and members</li>
-                  <li>• This action cannot be undone without the new owner's permission</li>
-                </ul>
-              </div>
-            </div>
+            )}
+          </div>
 
-            <div className="flex space-x-3">
-              <button
-               
-                onClick={handleTransfer}
-                disabled={isTransferring}
-                className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isTransferring ? "Transferring..." : "Transfer Ownership"}
-              </button>
-              <button
-                onClick={() => setShowConfirm(false)}
-                disabled={isTransferring}
-                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500 disabled:opacity-50"
-              >
-                Back
-              </button>
+          <div className="flex space-x-3">
+            <button
+              onClick={() => selectedMemberId ? setShowConfirm(true) : null}
+              disabled={!selectedMemberId}
+              className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              Continue
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mb-6">
+            <p className="text-gray-600 dark:text-gray-300 mb-4">
+              Are you sure you want to transfer ownership to <strong>{selectedMember?.user?.email}</strong>?
+            </p>
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
+              <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">After this transfer:</p>
+              <ul className="text-sm text-yellow-600 dark:text-yellow-400 space-y-1">
+                <li>• <strong>{selectedMember?.user?.email}</strong> will become the owner</li>
+                <li>• You will become a regular member</li>
+                <li>• Only the new owner can manage settings and members</li>
+                <li>• This action cannot be undone without the new owner's permission</li>
+              </ul>
             </div>
-          </>
-        )}
-      </div>
-    </div>
+          </div>
+
+          <div className="flex space-x-3">
+            <button
+              onClick={handleTransfer}
+              disabled={isTransferring}
+              className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isTransferring ? "Transferring..." : "Transfer Ownership"}
+            </button>
+            <button
+              onClick={() => setShowConfirm(false)}
+              disabled={isTransferring}
+              className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500 disabled:opacity-50"
+            >
+              Back
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
 
