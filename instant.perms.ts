@@ -32,10 +32,10 @@ const rules = {
   // Todos inherit permissions from their parent list
   todos: {
     allow: {
-      view: "data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
-      create: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
-      update: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
-      delete: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && auth.id in data.ref('list.owner.id'))",
+      view: "data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
+      create: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
+      update: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
+      delete: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
     },
   },
   
@@ -63,7 +63,7 @@ const rules = {
   listMembers: {
     allow: {
       view: "data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (data.ref('list.permission')[0] == 'private-read' || data.ref('list.permission')[0] == 'private-write') && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
-      create: "(auth.id != null && auth.id in data.ref('list.owner.id')) || (auth.id != null && auth.id == data.ref('user.id')[0] && auth.email in data.ref('list.invitations.email'))",
+      create: "auth.id != null && (auth.id in data.ref('list.owner.id') || (auth.id == data.ref('user.id')[0] && auth.email in data.ref('list.invitations.email')))",
       update: "auth.id != null && auth.id in data.ref('list.owner.id')",
       delete: "(auth.id != null && auth.id in data.ref('list.owner.id')) || (auth.id != null && auth.id == data.ref('user.id')[0])",
     },

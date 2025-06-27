@@ -325,8 +325,12 @@ function TodoListApp({
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const room = db.room("todoList", todoList.slug);
-  const { peers } = db.rooms.usePresence(room, {
-    initialData: { name: user?.email || "Anonymous", userId: user?.id || undefined }
+  const {
+    user: myPresence,
+    peers,
+    publishPresence,
+  } = db.rooms.usePresence(room, {
+    initialData: { name: user?.email || "Anonymous User", userId: user?.id || undefined }
   });
   
   const numUsers = 1 + Object.keys(peers).length;
@@ -507,7 +511,7 @@ function TodoListApp({
 
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-w-2xl">
             <div className="flex items-center space-x-4">
-              <OnlineUsersTooltip currentUser={user} peers={peers} numUsers={numUsers} />
+              <OnlineUsersTooltip currentUser={user} peers={peers} numUsers={numUsers} myPresence={myPresence}/>
               <span>Permission: {todoList.permission}</span>
             </div>
           </div>
@@ -1067,14 +1071,19 @@ function ShareModal({
 function OnlineUsersTooltip({ 
   currentUser, 
   peers, 
-  numUsers 
+  numUsers,
+  myPresence
 }: { 
   currentUser: User | null; 
   peers: Record<string, any>; 
   numUsers: number;
+  myPresence: any;
 }) {
   const [showTooltip, setShowTooltip] = useState(false);
   
+
+  console.log({peers, myPresence})
+
   const allUsers = [
     ...(currentUser ? [{
       id: currentUser.id,
@@ -1083,7 +1092,7 @@ function OnlineUsersTooltip({
     }] : []),
     ...Object.entries(peers).map(([peerId, peer]) => ({
       id: peerId,
-      name: peer.name || 'Anonymous',
+      name: peer.name || "Anonymous",
       isCurrentUser: false
     }))
   ];

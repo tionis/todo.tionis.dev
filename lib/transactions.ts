@@ -121,25 +121,24 @@ export async function transferListOwnership(
 
     const newMemberRecordId = id();
     
+    // Ownership transfer with proper membership management
     await db.transact([
-      // Unlink the current owner
+      // First: Remove the new owner from the members list (to prevent duplication)
+      db.tx.listMembers[newOwnerMemberId].delete(),
+      // Second: Transfer ownership
       db.tx.todoLists[listId].unlink({ owner: currentOwnerId }),
-      // Link the new owner
       db.tx.todoLists[listId].link({ owner: newOwnerId }),
-      // Update the list timestamp
+      // Third: Add the previous owner as a member
+      db.tx.listMembers[newMemberRecordId].update({
+        role: "member",
+        addedAt: new Date().toISOString()
+      }),
+      db.tx.listMembers[newMemberRecordId].link({ list: listId }),
+      db.tx.listMembers[newMemberRecordId].link({ user: currentOwnerId }),
+      // Finally: Update the list timestamp
       db.tx.todoLists[listId].update({
         updatedAt: new Date().toISOString()
       }),
-      // Create a new member record for the previous owner
-      db.tx.listMembers[newMemberRecordId]
-        .link({ list: listId })
-        .link({ user: currentOwnerId })
-        .update({
-          role: "member",
-          addedAt: new Date().toISOString()
-        }),
-      // Remove the new owner from the members list since they're now the owner
-      db.tx.listMembers[newOwnerMemberId].delete()
     ]);
     return true;
   } catch (error) {
