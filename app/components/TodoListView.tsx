@@ -610,6 +610,8 @@ function TodoListApp({
               todoList={todoList} 
               onClose={() => setShowShareModal(false)} 
               isOwner={isOwner}
+              user={user}
+              addToast={addToast}
             />
           )}
 
@@ -909,17 +911,22 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
 function ShareModal({ 
   todoList, 
   onClose, 
-  isOwner 
+  isOwner,
+  user,
+  addToast
 }: { 
   todoList: TodoList; 
   onClose: () => void; 
   isOwner: boolean;
+  user: User | null;
+  addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [isInviting, setIsInviting] = useState(false);
   const [showSuccess, setShowSuccess] = useState("");
   const [showError, setShowError] = useState<string | null>(null);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   
   const listUrl = getListUrl(todoList.slug);
 
@@ -1011,7 +1018,39 @@ function ShareModal({
     }
   };
 
+  const leaveList = async () => {
+    if (!user) return;
+    
+    try {
+      // Find the current user's membership
+      const currentUserMembership = todoList.members.find(member => 
+        member.user?.id === user.id
+      );
+      
+      if (currentUserMembership) {
+        await db.transact(db.tx.listMembers[currentUserMembership.id].delete());
+        addToast("Successfully left the list", "success");
+        setShowLeaveConfirm(false);
+        onClose();
+        // Navigate back to home or show a message that they've left
+        window.location.hash = '';
+      } else {
+        setShowError("You are not a member of this list.");
+      }
+    } catch (err) {
+      console.error("Failed to leave list:", err);
+      setShowError("Failed to leave list. Please try again.");
+      setShowLeaveConfirm(false);
+    }
+  };
+
   const pendingInvitations = todoList.invitations.filter(inv => inv.status === 'pending');
+  
+  // Check if current user is a member (not owner) of this list
+  const currentUserMembership = user ? todoList.members.find(member => 
+    member.user?.id === user.id
+  ) : null;
+  const isCurrentUserMember = currentUserMembership && !isOwner;
 
   return (
     <Modal onClose={onClose} title={`Share "${todoList.name}"`} maxWidth="md">
@@ -1137,6 +1176,31 @@ function ShareModal({
             {todoList.permission === 'owner' && "Only you can access this list"}
           </p>
         </div>
+
+        {/* Leave List Section - Only show for members who are not owners */}
+        {isCurrentUserMember && (
+          <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <svg className="w-5 h-5 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-medium text-orange-800 dark:text-orange-200 mb-2">Leave List</h4>
+                <p className="text-sm text-orange-700 dark:text-orange-300 mb-3">
+                  You can leave this list at any time. You'll lose access unless the owner invites you back.
+                </p>
+                <button
+                  onClick={() => setShowLeaveConfirm(true)}
+                  className="text-sm bg-orange-600 text-white py-2 px-4 rounded hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors"
+                >
+                  Leave List
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end mt-6">
@@ -1147,6 +1211,42 @@ function ShareModal({
           Close
         </button>
       </div>
+
+      {/* Leave List Confirmation Modal */}
+      {showLeaveConfirm && (
+        <Modal onClose={() => setShowLeaveConfirm(false)} title="Leave List">
+          <div className="mb-6">
+            <p className="text-gray-600 dark:text-gray-300 mb-4">
+              Are you sure you want to leave "<strong>{todoList.name}</strong>"?
+            </p>
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded p-3">
+              <p className="text-sm text-orange-700 dark:text-orange-300 mb-2">After leaving:</p>
+              <ul className="text-sm text-orange-600 dark:text-orange-400 space-y-1">
+                <li>• You will lose access to this list</li>
+                <li>• You won't be able to view or edit todos</li>
+                <li>• The owner will need to invite you again to regain access</li>
+              </ul>
+              <p className="text-sm text-orange-700 dark:text-orange-300 mt-2 font-medium">
+                You can always be re-invited later.
+              </p>
+            </div>
+          </div>
+          <div className="flex space-x-3">
+            <button
+              onClick={leaveList}
+              className="flex-1 bg-orange-600 text-white py-2 px-4 rounded hover:bg-orange-700"
+            >
+              Leave List
+            </button>
+            <button
+              onClick={() => setShowLeaveConfirm(false)}
+              className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
