@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { id, InstaQLEntity, User } from "@instantdb/react";
 import { db } from '../../lib/db';
 import { copyToClipboard, getListUrl } from "../../lib/utils";
@@ -350,6 +350,22 @@ function TodoListApp({
   const [showCompletedUncategorized, setShowCompletedUncategorized] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(todoList.name);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Close mobile menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
+        setShowMobileMenu(false);
+      }
+    };
+
+    if (showMobileMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMobileMenu]);
 
   // Sort todos by sublist and order
   const todosWithoutSublist = todoList.todos.filter(todo => !todo.sublist);
@@ -468,29 +484,84 @@ function TodoListApp({
               )}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowShareModal(true)}
-              className="px-3 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-            >
-              Share
-            </button>
-            {isOwner && (
+          
+          {/* Desktop: Show buttons directly, Mobile: Show hamburger menu */}
+          <div className="relative">
+            {/* Desktop buttons (hidden on mobile) */}
+            <div className="hidden md:flex gap-2">
               <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="px-3 py-2 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
+                onClick={() => setShowShareModal(true)}
+                className="px-3 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
               >
-                Settings
+                Share
               </button>
-            )}
-            {user && (
+              {isOwner && (
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="px-3 py-2 text-sm bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors"
+                >
+                  Settings
+                </button>
+              )}
+              {user && (
+                <button
+                  onClick={() => db.auth.signOut()}
+                  className="px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+                >
+                  Sign Out
+                </button>
+              )}
+            </div>
+
+            {/* Mobile hamburger menu */}
+            <div className="md:hidden" ref={mobileMenuRef}>
               <button
-                onClick={() => db.auth.signOut()}
-                className="px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+                onClick={() => setShowMobileMenu(!showMobileMenu)}
+                className="p-2 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                aria-label="Menu"
               >
-                Sign Out
+                <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
               </button>
-            )}
+
+              {/* Mobile menu dropdown */}
+              {showMobileMenu && (
+                <div className="absolute right-0 top-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg py-1 z-50 min-w-[120px]">
+                  <button
+                    onClick={() => {
+                      setShowShareModal(true);
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    Share
+                  </button>
+                  {isOwner && (
+                    <button
+                      onClick={() => {
+                        setShowSettings(!showSettings);
+                        setShowMobileMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Settings
+                    </button>
+                  )}
+                  {user && (
+                    <button
+                      onClick={() => {
+                        db.auth.signOut();
+                        setShowMobileMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Sign Out
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
