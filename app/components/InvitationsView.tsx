@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { id } from "@instantdb/react";
+import { id, User } from "@instantdb/react";
 import { db } from "../../lib/db";
 import { getListUrl } from "../../lib/utils";
+import LoadingSpinner from './LoadingSpinner';
+import ErrorDisplay from './ErrorDisplay';
 
-export default function InvitationsPage() {
-  const router = useRouter();
+interface InvitationsViewProps {}
+
+export default function InvitationsView({}: InvitationsViewProps) {
   const [mounted, setMounted] = useState(false);
   const { isLoading: authLoading, user, error: authError } = db.useAuth();
   const [processingInvitation, setProcessingInvitation] = useState<string | null>(null);
@@ -22,18 +24,15 @@ export default function InvitationsPage() {
     user ? {
       invitations: {
         $: { where: { email: user.email.toLowerCase(), status: 'pending' } },
-        list: { owner: {} }
+        list: { owner: {} },
+        inviter: {}
       }
     } : null
   );
 
   // Prevent hydration mismatch
   if (!mounted || authLoading || isLoading) {
-    return (
-      <div className="font-mono min-h-screen flex justify-center items-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-gray-600 dark:text-gray-400">Loading invitations...</div>
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   if (authError) {
@@ -45,7 +44,7 @@ export default function InvitationsPage() {
             You need to sign in to view your invitations.
           </p>
           <button
-            onClick={() => router.push('/')}
+            onClick={() => window.location.hash = ''}
             className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
           >
             Go to Home
@@ -56,11 +55,7 @@ export default function InvitationsPage() {
   }
 
   if (error) {
-    return (
-      <div className="font-mono min-h-screen flex justify-center items-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-red-500">Error loading invitations: {error.message}</div>
-      </div>
-    );
+    return <ErrorDisplay message={`Error loading invitations: ${error.message}`} />;
   }
 
   const invitations = data?.invitations || [];
@@ -95,7 +90,7 @@ export default function InvitationsPage() {
       
       // Auto-hide success message and redirect after 2 seconds
       setTimeout(() => {
-        router.push(getListUrl(invitation.list.slug));
+        window.location.hash = `/list/${invitation.list.slug}`;
       }, 2000);
       
     } catch (err) {
@@ -141,7 +136,7 @@ export default function InvitationsPage() {
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center space-x-4 mb-6">
           <button
-            onClick={() => router.push('/')}
+            onClick={() => window.location.hash = ''}
             className="flex items-center space-x-2 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors border border-gray-300 dark:border-gray-600"
           >
             <span>←</span>
@@ -181,7 +176,7 @@ export default function InvitationsPage() {
               You don't have any pending invitations at the moment.
             </p>
             <button
-              onClick={() => router.push('/')}
+              onClick={() => window.location.hash = ''}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
             >
               Go to Your Lists
@@ -206,7 +201,7 @@ export default function InvitationsPage() {
                     <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
                       <p>
                         <span className="font-medium">Invited by:</span>{' '}
-                        {invitation.list?.owner?.email || 'Unknown'}
+                        {invitation.inviter?.email || 'Unknown'}
                       </p>
                       <p>
                         <span className="font-medium">Role:</span>{' '}

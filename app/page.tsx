@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { id, User } from "@instantdb/react";
 import { db } from "../lib/db";
@@ -8,11 +8,28 @@ import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
 import { executeTransaction, canUserWrite, canUserView } from "../lib/transactions";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
+import { useHashRouter } from "./components/HashRouter";
+import TodoListView from "./components/TodoListView";
+import InvitationsView from "./components/InvitationsView";
 import type { AppSchema } from "../lib/db";
 
 function App() {
   const [mounted, setMounted] = useState(false);
   const { isLoading, user, error } = db.useAuth();
+
+  // Define routes for hash router
+  const routes = useMemo(() => [
+    {
+      path: '/list/:slug',
+      component: TodoListView,
+    },
+    {
+      path: '/invitations',
+      component: InvitationsView,
+    }
+  ], []);
+
+  const { currentRoute, routeParams, navigate } = useHashRouter(routes);
 
   useEffect(() => {
     setMounted(true);
@@ -21,6 +38,12 @@ function App() {
   // Prevent hydration mismatch by showing loading state until mounted
   if (!mounted) {
     return <LoadingSpinner />;
+  }
+
+  // If we have a current route, render that component
+  if (currentRoute) {
+    const RouteComponent = currentRoute.component;
+    return <RouteComponent {...routeParams} {...(currentRoute.props || {})} />;
   }
 
   if (isLoading) return <LoadingSpinner />;
@@ -64,7 +87,8 @@ function LandingPage() {
           <li>• Share with simple URLs</li>
         </ul>
         <p className="mt-4 text-xs">
-          Already have a list URL? Just paste it in your browser to access it.
+          Already have a list URL? Use the new format: yoursite.com/#/list/your-slug<br/>
+          Check your invitations at: yoursite.com/#/invitations
         </p>
       </div>
     </div>
@@ -120,7 +144,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     );
     
     if (success) {
-      router.push(`/${slug}`);
+      window.location.hash = `/list/${slug}`;
     } else {
       setShowErrorModal({show: true, message: "Failed to create list. Please try again."});
     }
@@ -148,7 +172,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
           <div className="flex space-x-3">
             <button
-              onClick={() => router.push('/invitations')}
+              onClick={() => window.location.hash = '/invitations'}
               className="relative px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
             >
               Invitations
@@ -255,7 +279,7 @@ function TodoListCard({
       <div className="flex justify-between items-start mb-3">
         <h3 
           className="font-medium text-lg cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 text-gray-900 dark:text-white"
-          onClick={() => router.push(`/${list.slug}`)}
+          onClick={() => window.location.hash = `/list/${list.slug}`}
         >
           {list.name}
         </h3>
@@ -288,7 +312,7 @@ function TodoListCard({
       </div>
 
       <button
-        onClick={() => router.push(`/${list.slug}`)}
+        onClick={() => window.location.hash = `/list/${list.slug}`}
         className="w-full mt-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-sm text-gray-900 dark:text-white"
       >
         Open List

@@ -1,14 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
+import React, { useState, useEffect } from 'react';
 import { id, InstaQLEntity, User } from "@instantdb/react";
-import { db } from "../../lib/db";
+import { db } from '../../lib/db';
 import { copyToClipboard, getListUrl } from "../../lib/utils";
 import { executeTransaction, canUserWrite, canUserView } from "../../lib/transactions";
-import LoadingSpinner from "../components/LoadingSpinner";
-import ErrorDisplay from "../components/ErrorDisplay";
-import { useToast } from "../components/Toast";
+import LoadingSpinner from './LoadingSpinner';
+import ErrorDisplay from './ErrorDisplay';
+import { useToast } from './Toast';
 import type { AppSchema } from "../../lib/db";
 
 type TodoList = InstaQLEntity<AppSchema, "todoLists", { 
@@ -16,15 +15,16 @@ type TodoList = InstaQLEntity<AppSchema, "todoLists", {
   todos: { sublist?: {} }; 
   sublists: { todos: {} }; 
   members: { user: {} };
-  invitations: {}
+  invitations: { inviter: {} }
 }>;
 type Todo = InstaQLEntity<AppSchema, "todos", { sublist?: {} }>;
 type Sublist = InstaQLEntity<AppSchema, "sublists", { todos: {} }>;
 
-export default function TodoListPage() {
-  const params = useParams();
-  const router = useRouter();
-  const slug = params.slug as string;
+interface TodoListViewProps {
+  slug: string;
+}
+
+export default function TodoListView({ slug }: TodoListViewProps) {
   const [mounted, setMounted] = useState(false);
   
   const { isLoading: authLoading, user, error: authError } = db.useAuth();
@@ -35,7 +35,7 @@ export default function TodoListPage() {
       todos: {},
       sublists: { todos: {} },
       members: { user: {} },
-      invitations: {}
+      invitations: { inviter: {} }
     } 
   });
   const { addToast } = useToast();
@@ -125,7 +125,7 @@ export default function TodoListPage() {
         });
       }
     }
-  }, [user, data?.todoLists, autoAcceptStatus.accepting, autoAcceptStatus.accepted]);
+  }, [user, data?.todoLists]);
 
   // Prevent hydration mismatch
   if (!mounted || authLoading || isLoading) {
@@ -140,7 +140,7 @@ export default function TodoListPage() {
     return <ErrorDisplay message={authError.message} />;
   }
 
-  const todoList = data.todoLists[0];
+  const todoList = data?.todoLists?.[0];
   
   if (!todoList) {
     return <ErrorDisplay message="Todo list not found" />;
@@ -297,6 +297,7 @@ function CodeStep({ sentEmail }: { sentEmail: string }) {
   );
 }
 
+// Main TodoList App Component
 function TodoListApp({ 
   todoList, 
   user, 
@@ -320,7 +321,6 @@ function TodoListApp({
   deleteTodo: (todo: Todo) => void;
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
-  const router = useRouter();
   const room = db.room("todoList", todoList.slug);
   const { peers } = db.rooms.usePresence(room, {
     initialData: { name: user?.email || "Anonymous", userId: user?.id || undefined }
@@ -362,7 +362,7 @@ function TodoListApp({
         <div className="flex justify-between items-start mb-6">
           <div className="flex items-center space-x-4">
             <button
-              onClick={() => router.push('/')}
+              onClick={() => window.location.hash = ''}
               className="flex items-center space-x-2 px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors border border-gray-300 dark:border-gray-600"
               title="Back to Lists"
             >
@@ -395,7 +395,9 @@ function TodoListApp({
               </button>
             )}
           </div>
-        </div>          <div className="flex flex-col items-center space-y-6">
+        </div>
+
+        <div className="flex flex-col items-center space-y-6">
           {/* Auto-accept Status */}
           {autoAcceptStatus.accepting && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-4 py-3 rounded-lg w-full max-w-2xl">
@@ -444,71 +446,72 @@ function TodoListApp({
           )}
 
           <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-        {canWrite && <TodoForm todoList={todoList} />}
-        
-        {/* Sublists */}
-        {sublists.map(sublist => (
-          <SublistSection 
-            key={sublist.id} 
-            sublist={sublist} 
-            todoList={todoList}
-            canWrite={canWrite}
-            isOwner={isOwner}
-            toggleTodo={toggleTodo}
-            deleteTodo={deleteTodo}
-          />
-        ))}
+            {canWrite && <TodoForm todoList={todoList} />}
+            
+            {/* Sublists */}
+            {sublists.map(sublist => (
+              <SublistSection 
+                key={sublist.id} 
+                sublist={sublist} 
+                todoList={todoList}
+                canWrite={canWrite}
+                isOwner={isOwner}
+                toggleTodo={toggleTodo}
+                deleteTodo={deleteTodo}
+              />
+            ))}
 
-        {/* Add new sublist button */}
-        {canWrite && <AddSublistForm todoList={todoList} />}
-        
-        {/* Todos without sublist */}
-        {(visibleTodos.length > 0 || (todosWithoutSublist.length > 0 && todoList.hideCompleted)) && (
-          <div>
-            <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white">
-              Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
-            </div>
-            {visibleTodos.length > 0 && (
-              <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
-            )}
-            {todoList.hideCompleted && !showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
-              <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
-                <button
-                  onClick={() => setShowCompletedUncategorized(true)}
-                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
-                >
-                  <span>▼</span>
-                  <span>Show {completedUncategorizedTodos.length} completed item{completedUncategorizedTodos.length !== 1 ? 's' : ''}</span>
-                </button>
-              </div>
-            )}
-            {todoList.hideCompleted && showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
+            {/* Add new sublist button */}
+            {canWrite && <AddSublistForm todoList={todoList} />}
+            
+            {/* Todos without sublist */}
+            {(visibleTodos.length > 0 || (todosWithoutSublist.length > 0 && todoList.hideCompleted)) && (
               <div>
-                <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
-                  <button
-                    onClick={() => setShowCompletedUncategorized(false)}
-                    className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
-                  >
-                    <span>▲</span>
-                    <span>Hide completed items</span>
-                  </button>
+                <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white">
+                  Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
                 </div>
-                <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
+                {visibleTodos.length > 0 && (
+                  <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
+                )}
+                {todoList.hideCompleted && !showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
+                  <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+                    <button
+                      onClick={() => setShowCompletedUncategorized(true)}
+                      className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+                    >
+                      <span>▼</span>
+                      <span>Show {completedUncategorizedTodos.length} completed item{completedUncategorizedTodos.length !== 1 ? 's' : ''}</span>
+                    </button>
+                  </div>
+                )}
+                {todoList.hideCompleted && showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
+                  <div>
+                    <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+                      <button
+                        onClick={() => setShowCompletedUncategorized(false)}
+                        className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+                      >
+                        <span>▲</span>
+                        <span>Hide completed items</span>
+                      </button>
+                    </div>
+                    <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
+                  </div>
+                )}
               </div>
             )}
+            
+            <ActionBar todoList={todoList} canWrite={canWrite} deleteCompleted={deleteCompleted} />
           </div>
-        )}
-        
-        <ActionBar todoList={todoList} canWrite={canWrite} deleteCompleted={deleteCompleted} />
-        </div>
         </div>
       </div>
     </div>
   );
 }
 
+// Helper Components
+
 function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () => void }) {
-  const router = useRouter();
   const [permission, setPermission] = useState(todoList.permission);
   const [hideCompleted, setHideCompleted] = useState(todoList.hideCompleted);
   const [name, setName] = useState(todoList.name);
@@ -548,7 +551,7 @@ function SettingsPanel({ todoList, onClose }: { todoList: TodoList; onClose: () 
 
     db.transact(deleteTransactions).then(() => {
       // Navigate back to the dashboard after successful deletion
-      router.push('/');
+      window.location.hash = '';
     }).catch(err => {
       console.error("Failed to delete list:", err);
       setShowError("Failed to delete list. Please try again.");
@@ -1076,7 +1079,7 @@ function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
   const sortedTodos = [...todos].sort((a, b) => (a.order || 0) - (b.order || 0));
 
   return (
-    <div className="divide-y divide-gray-300">
+    <div className="divide-y divide-gray-300 dark:divide-gray-600">
       {sortedTodos.map((todo) => (
         <div key={todo.id} className="flex items-center h-10">
           <div className="h-full px-2 flex items-center justify-center">
@@ -1090,14 +1093,14 @@ function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
           </div>
           <div className="flex-1 px-2 overflow-hidden flex items-center">
             {todo.done ? (
-              <span className="line-through text-gray-500">{todo.text}</span>
+              <span className="line-through text-gray-500 dark:text-gray-400">{todo.text}</span>
             ) : (
-              <span>{todo.text}</span>
+              <span className="text-gray-900 dark:text-white">{todo.text}</span>
             )}
           </div>
           {canWrite && (
             <button
-              className="h-full px-2 flex items-center justify-center text-gray-300 hover:text-gray-500"
+              className="h-full px-2 flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-300"
               onClick={() => deleteTodo(todo)}
             >
               ×

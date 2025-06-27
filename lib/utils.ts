@@ -10,9 +10,9 @@ export function generateSlug(): string {
 
 export function getListUrl(slug: string): string {
   if (typeof window !== 'undefined') {
-    return `${window.location.origin}/${slug}`;
+    return `${window.location.origin}/#/list/${encodeURIComponent(slug)}`;
   }
-  return `/${slug}`;
+  return `/#/list/${encodeURIComponent(slug)}`;
 }
 
 export function copyToClipboard(text: string): Promise<void> {
