@@ -7,7 +7,7 @@
       the toggle in the top right doesn't correctly switch the themes, even though changing system mode works
       the toggle only changes some text from dark to light
 - [ ] mobile improvements
-  - [ ] the drop down for the category in the quick add gets too large and is too long on the right side, thus destroying the layout
+  - [ ] The drop down selection menu for the category in the quick add feature. The drop down menu gets too large horizontally and is too long on the right side, thus destroying the layout.
   - [ ] the buttons at the top are taking up too much screen real estate due to them having to be shown in multiple rows, perhaps a small 3 line symbol menu would be better here?
 - [ ] add some kind of setting to transfer ownership of a list to another user
       this might need some kind of logging or invite system to see where the list came from

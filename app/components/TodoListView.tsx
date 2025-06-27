@@ -32,7 +32,9 @@ export default function TodoListView({ slug }: TodoListViewProps) {
     todoLists: { 
       $: { where: { slug } },
       owner: {},
-      todos: {},
+      todos: {
+        sublist: {}
+      },
       sublists: { todos: {} },
       members: { user: {} },
       invitations: { inviter: {} }
@@ -332,6 +334,7 @@ function TodoListApp({
   const [showCompletedUncategorized, setShowCompletedUncategorized] = useState(false);
 
   // Sort todos by sublist and order
+  console.log(todoList.todos)
   const todosWithoutSublist = todoList.todos.filter(todo => !todo.sublist);
   const visibleTodos = todoList.hideCompleted 
     ? todosWithoutSublist.filter(todo => !todo.done)
