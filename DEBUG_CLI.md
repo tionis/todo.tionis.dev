@@ -4,32 +4,31 @@ A command-line tool for debugging InstantDB databases using the admin SDK.
 
 ## Installation
 
-First, install the required dependencies:
-
+Install dependencies:
 ```bash
 npm install
 ```
 
-## Setup
+## Environment Setup
 
-You'll need your InstantDB App ID and Admin Token. You can provide these in two ways:
+The CLI automatically loads environment variables from a `.env` file in the current directory. 
 
-### Option 1: Environment Variables (Recommended)
+Required environment variables:
+- `INSTANT_APP_ID` - Your InstantDB App ID (already configured)
+- `INSTANT_APP_ADMIN_TOKEN` - Your InstantDB Admin Token (get this from your InstantDB dashboard)
 
-Create a `.env` file in the project root:
-
-```env
-INSTANT_APP_ID=your_app_id_here
+Add your admin token to the `.env` file:
+```bash
+# In .env file
 INSTANT_APP_ADMIN_TOKEN=your_admin_token_here
 ```
 
-### Option 2: Command Line Options
-
-Pass the credentials directly via command line flags:
-
+Or pass credentials directly via command line options:
 ```bash
-npm run debug query --app-id your_app_id --admin-token your_admin_token '{"todos": {}}'
+node debug-cli.js query '{"todos": {}}' --app-id your-app-id --admin-token your-admin-token
 ```
+
+**Note:** Environment variables take precedence over command line options.
 
 ## Usage
 
@@ -38,48 +37,35 @@ npm run debug query --app-id your_app_id --admin-token your_admin_token '{"todos
 Execute arbitrary queries against your InstantDB database:
 
 ```bash
-# Basic query
-npm run debug query '{"todos": {}}'
+# Basic query (JSON format)
+node debug-cli.js query '{"todos": {}}'
 
-# Query with filters
-npm run debug query '{"todos": {"$": {"where": {"done": true}}}}'
+# Basic query (JavaScript object format - unquoted keys)
+node debug-cli.js query '{todos: {}}'
 
-# Query multiple entities
-npm run debug query '{"todos": {}, "users": {}}'
-```
+# Query with filters (both formats work)
+node debug-cli.js query '{"todos": {"$": {"where": {"done": true}}}}'
+node debug-cli.js query '{todos: {$: {where: {done: true}}}}'
 
-#### User Impersonation
+# Complex query with relations
+node debug-cli.js query '{todoLists: {owner: {}, todos: {}, members: {user: {}}}}'
 
-Run queries with user permissions instead of admin privileges:
-
-```bash
-# Impersonate by email
-npm run debug query --impersonate-email user@example.com '{"todos": {}}'
-
-# Impersonate by user ID
-npm run debug query --impersonate-id user_123 '{"todos": {}}'
-
-# Impersonate by token
-npm run debug query --impersonate-token refresh_token_here '{"todos": {}}'
+# Impersonate a user by email
+node debug-cli.js query '{todos: {}}' --impersonate-email user@example.com
 
 # Run as guest user
-npm run debug query --guest '{"todos": {}}'
+node debug-cli.js query '{todos: {}}' --guest
+
+# Different output formats
+node debug-cli.js query '{todos: {}}' --format table
+node debug-cli.js query '{todos: {}}' --format count
 ```
 
-#### Output Formats
-
-Choose different output formats:
-
-```bash
-# JSON format (default)
-npm run debug query '{"todos": {}}' --format json
-
-# Table format
-npm run debug query '{"todos": {}}' --format table
-
-# Count format (shows item counts)
-npm run debug query '{"todos": {}}' --format count
-```
+**Query Format Support:**
+- ✅ JSON format: `'{"todos": {}}'`
+- ✅ JavaScript object literals: `'{todos: {}}'`
+- ✅ Mixed quotes and boolean values: `'{todos: {$: {where: {done: false}}}}'`
+- ✅ Special keys like `$`: `'{todos: {$: {limit: 10}}}'`
 
 ### User Command
 
@@ -87,123 +73,130 @@ Look up user information:
 
 ```bash
 # By email
-npm run debug user user@example.com
+node debug-cli.js user user@example.com
 
 # By user ID
-npm run debug user user_123
+node debug-cli.js user user-id-123
 
 # By refresh token
-npm run debug user refresh_token_here
-
-# Specify identifier type explicitly
-npm run debug user user@example.com --type email
+node debug-cli.js user refresh_token_abc123
 ```
 
 ### Presence Command
 
-Get presence data for rooms:
+Get presence data for a room:
 
 ```bash
-# Get presence for a specific room
-npm run debug presence chat room-123
+node debug-cli.js presence todoList my-todo-list-slug
 ```
 
-## Examples
+## Query Examples
 
-### Debug Todo Permissions
+### Basic Entity Queries
+```bash
+# Get all todos (JSON format)
+node debug-cli.js query '{"todos": {}}'
 
-Check what a specific user can see:
+# Get all todos (JavaScript object format)
+node debug-cli.js query '{todos: {}}'
+
+# Get todos with specific status
+node debug-cli.js query '{todos: {$: {where: {done: false}}}}'
+
+# Get todos with relations
+node debug-cli.js query '{todos: {sublist: {}}}'
+```
+
+### Advanced Queries
+```bash
+# Get todo lists with all relations
+node debug-cli.js query '{todoLists: {owner: {}, todos: {}, sublists: {todos: {}}, members: {user: {}}}}'
+
+# Filter by permission level
+node debug-cli.js query '{todoLists: {$: {where: {permission: "public-read"}}, todos: {}}}'
+
+# Query with user impersonation to test permissions
+node debug-cli.js query '{todoLists: {}}' --impersonate-email test@example.com
+
+# Count items with table display
+node debug-cli.js query '{todoLists: {}, todos: {}, users: {}}' --format count
+```
+
+### Query Syntax Examples
+```bash
+# Both of these are equivalent:
+node debug-cli.js query '{"todos": {"$": {"where": {"done": true}}}}'  # JSON
+node debug-cli.js query '{todos: {$: {where: {done: true}}}}'           # JS Object
+
+# Complex nested queries
+node debug-cli.js query '{
+  todoLists: {
+    $: {where: {hideCompleted: false}},
+    owner: {},
+    todos: {
+      $: {where: {done: false}},
+      sublist: {}
+    }
+  }
+}'
+```
+
+## Security Notes
+
+- Never commit your admin token to version control
+- The admin token gives full access to your database
+- Use user impersonation to test permission rules
+- The CLI bypasses all permissions when running as admin (default)
+
+## Transact Subcommand
+
+Execute database transactions to create, update, or delete data.
 
 ```bash
-# See all todos as admin
-npm run debug query '{"todoLists": {"todos": {}, "members": {"user": {}}}}'
+# Update a todo list's permission
+node debug-cli.js transact update todoLists <list-id> '{permission: "public-read"}'
 
-# See what a specific user can access
-npm run debug query --impersonate-email user@example.com '{"todoLists": {"todos": {}, "members": {"user": {}}}}'
+# Create/update a todo item
+node debug-cli.js transact update todos <todo-id> '{text: "New todo item", done: false}'
+
+# Delete a todo item
+node debug-cli.js transact delete todos <todo-id> '{}'
+
+# Dry run to see what would be executed
+node debug-cli.js transact --dry-run update todoLists <list-id> '{permission: "public-read"}'
+
+# Run transaction as a guest user (respecting permissions)
+node debug-cli.js transact --guest update todos <todo-id> '{done: true}'
+
+# Run transaction while impersonating a user
+node debug-cli.js transact --impersonate-email user@example.com update todos <todo-id> '{text: "Updated"}'
 ```
 
-### Find Orphaned Data
+### Syntax
+- **Operation**: `update`, `create`, or `delete`
+- **Entity**: The entity name (e.g., `todoLists`, `todos`, `sublists`)
+- **ID**: The entity ID to operate on
+- **Data**: JSON object or JavaScript object literal with the fields to update
 
-```bash
-# Find todos without a parent list
-npm run debug query '{"todos": {"$": {"where": {"list": null}}}}'
-
-# Count items by type
-npm run debug query '{"todos": {}, "todoLists": {}, "users": {}}' --format count
-```
-
-### Monitor Active Users
-
-```bash
-# Check who's online in a todo list
-npm run debug presence todoList my-list-slug
-```
-
-## Query Syntax
-
-The query syntax follows InstantDB's InstaQL format. Here are some common patterns:
-
-### Basic Queries
-
-```javascript
-// Get all todos
-{"todos": {}}
-
-// Get todos with related data
-{"todos": {"list": {}, "sublist": {}}}
-
-// Get specific fields only
-{"todos": {"$": {"select": ["text", "done"]}}}
-```
-
-### Filtering
-
-```javascript
-// Filter by field value
-{"todos": {"$": {"where": {"done": true}}}}
-
-// Filter by relationship
-{"todoLists": {"$": {"where": {"owner": "user_123"}}}}
-
-// Multiple conditions
-{"todos": {"$": {"where": {"done": false, "text": {"$contains": "urgent"}}}}}
-```
-
-### Sorting and Limiting
-
-```javascript
-// Sort by field
-{"todos": {"$": {"order": {"createdAt": "desc"}}}}
-
-// Limit results
-{"todos": {"$": {"limit": 10}}}
-
-// Combine sorting and limiting
-{"todos": {"$": {"order": {"createdAt": "desc"}, "limit": 5}}}
-```
+### Options
+- `--dry-run`: Show what would be executed without running it
+- `--guest`: Run as guest user (respecting permissions)
+- `--impersonate-email <email>`: Impersonate user by email
+- `--impersonate-id <id>`: Impersonate user by ID  
+- `--impersonate-token <token>`: Impersonate user by token
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Invalid query format**: Make sure your query is valid JSON or JavaScript object literal
-2. **Permission denied**: Check if the user you're impersonating has the right permissions
-3. **User not found**: Verify the user identifier (email, ID, or token) is correct
+1. **"App ID is required"** - Make sure `INSTANT_APP_ID` is set in your `.env` file
+2. **"Admin token is required"** - Add `INSTANT_APP_ADMIN_TOKEN` to your `.env` file
+3. **"Invalid query format"** - Ensure your query is valid JSON or JavaScript object literal
+4. **Permission errors** - Try running with `--guest` or user impersonation to test permissions
 
-### Verbose Mode
+### Debug Mode
 
-Enable verbose logging for debugging:
-
+Use the `--verbose` flag for detailed logging:
 ```bash
-npm run debug query '{"todos": {}}' --verbose
+node debug-cli.js query '{"todos": {}}' --verbose
 ```
-
-## Security Notes
-
-- Never commit your `.env` file containing admin tokens to version control
-- The admin token bypasses all permissions when not using impersonation
-- Be careful when using `eval()` for query parsing in production environments
-
-## Schema Support
-
-If you have an `instant.schema.ts` file in your project root, the CLI will attempt to use it for type safety. For full schema support, consider compiling your TypeScript schema to JavaScript first.
