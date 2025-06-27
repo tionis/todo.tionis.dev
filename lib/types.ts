@@ -58,3 +58,8 @@ export interface AsyncOperationState {
   error: string | null;
   success: boolean;
 }
+
+export interface OwnershipTransferState extends AsyncOperationState {
+  selectedMemberId: string | null;
+  showConfirmation: boolean;
+}

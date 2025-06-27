@@ -8,6 +8,16 @@ const rules = {
       $default: "false", // Don't allow creating new attributes in production
     },
   },
+
+  // Users can view other users if they share lists or have invitations together
+  $users: {
+    allow: {
+      view: "auth.id != null && (auth.id == data.id || auth.id in data.ref('ownedLists.members.user.id') || auth.id in data.ref('memberships.list.owner.id') || auth.id in data.ref('memberships.list.members.user.id'))",
+      create: "false", // Users are created through auth
+      update: "false", // Users cannot be updated (read-only namespace)
+      delete: "false", // Users cannot be deleted
+    },
+  },
   
   // Todo lists are the main entities that control access
   todoLists: {
