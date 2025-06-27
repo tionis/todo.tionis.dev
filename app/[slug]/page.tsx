@@ -53,9 +53,8 @@ export default function TodoListPage() {
     if (!success) {
       console.error("Failed to update todo");
       addToast("Failed to update todo. Please try again.", "error");
-    } else {
-      addToast(todo.done ? "Todo marked as incomplete" : "Todo completed!", "success");
     }
+    // No success toast - the visual feedback of the checkbox change is sufficient
   };
 
   const deleteTodo = async (todo: Todo) => {
