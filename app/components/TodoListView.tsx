@@ -425,10 +425,15 @@ function TodoListApp({
                 />
               ) : (
                 <h2 
-                  className={`tracking-wide text-3xl md:text-4xl text-gray-800 dark:text-gray-200 font-light ${isOwner ? 'cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 transition-colors' : ''}`}
-                  onClick={startEditingTitle}
+                  className={`tracking-wide text-3xl md:text-4xl text-gray-800 dark:text-gray-200 font-light ${isOwner ? 'md:cursor-pointer md:hover:text-gray-600 md:dark:hover:text-gray-400 transition-colors' : ''}`}
+                  onClick={(e) => {
+                    // Only allow click-to-edit on desktop (medium screens and up)
+                    if (isOwner && window.innerWidth >= 768) {
+                      startEditingTitle();
+                    }
+                  }}
                   onDoubleClick={startEditingTitle}
-                  title={isOwner ? "Click to edit list name" : undefined}
+                  title={isOwner ? "Click to edit list name (desktop) or use edit button" : undefined}
                   style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
                   {todoList.name}
@@ -1216,9 +1221,14 @@ function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
               />
             ) : (
               <span 
-                className={`cursor-pointer select-none ${todo.done ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} ${canWrite ? 'hover:bg-gray-50 dark:hover:bg-gray-700' : ''} rounded px-2 py-2 w-full min-h-[2rem] flex items-center transition-colors`}
+                className={`select-none ${todo.done ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} ${canWrite ? 'md:cursor-pointer md:hover:bg-gray-50 md:dark:hover:bg-gray-700' : ''} rounded px-2 py-2 w-full min-h-[2rem] flex items-center transition-colors`}
                 onDoubleClick={() => startEditing(todo)}
-                onClick={() => startEditing(todo)}
+                onClick={(e) => {
+                  // Only allow click-to-edit on desktop (medium screens and up)
+                  if (window.innerWidth >= 768) {
+                    startEditing(todo);
+                  }
+                }}
                 style={{ WebkitTapHighlightColor: 'transparent' }} // Removes blue highlight on mobile
               >
                 {todo.text}
@@ -1348,10 +1358,15 @@ function SublistSection({
             />
           ) : (
             <span 
-              className={`text-sm font-medium text-gray-900 dark:text-white ${isOwner ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 rounded px-2 py-1 -mx-2 -my-1 transition-colors' : ''} min-h-[2rem] flex items-center`}
+              className={`text-sm font-medium text-gray-900 dark:text-white ${isOwner ? 'md:cursor-pointer md:hover:bg-gray-100 md:dark:hover:bg-gray-600 rounded px-2 py-1 -mx-2 -my-1 transition-colors' : ''} min-h-[2rem] flex items-center`}
               onDoubleClick={startEditingName}
-              onClick={startEditingName}
-              title={isOwner ? "Click to edit category name" : undefined}
+              onClick={(e) => {
+                // Only allow click-to-edit on desktop (medium screens and up)
+                if (isOwner && window.innerWidth >= 768) {
+                  startEditingName();
+                }
+              }}
+              title={isOwner ? "Click to edit category name (desktop) or use edit button" : undefined}
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               {sublist.name} ({totalCount - completedCount}/{totalCount})
