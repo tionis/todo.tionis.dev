@@ -9,5 +9,7 @@
 - [ ] mobile improvements
   - [ ] the drop down for the category in the quick add gets too large and is too long on the right side, thus destroying the layout
   - [ ] the buttons at the top are taking up too much screen real estate due to them having to be shown in multiple rows, perhaps a small 3 line symbol menu would be better here?
+- [ ] add some kind of setting to transfer ownership of a list to another user
+      this might need some kind of logging or invite system to see where the list came from
 - [x] fix routing when compiling to static website (use client-side routing?)
       `/[slug]` routes are used to identify todo lists. This means that some client-side routing is needed here as we want to deploy the app as a static webapp
