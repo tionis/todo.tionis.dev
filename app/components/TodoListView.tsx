@@ -332,6 +332,16 @@ function TodoListApp({
   } = db.rooms.usePresence(room, {
     initialData: { name: user?.email || "Anonymous User", userId: user?.id || undefined }
   });
+
+  // Update presence when user data changes
+  useEffect(() => {
+    if (user?.email) {
+      publishPresence({ 
+        name: user.email, 
+        userId: user.id 
+      });
+    }
+  }, [user?.email, user?.id, publishPresence]);
   
   const numUsers = 1 + Object.keys(peers).length;
   const [showDeleteCompletedConfirm, setShowDeleteCompletedConfirm] = useState(false);
@@ -1303,9 +1313,9 @@ function OnlineUsersTooltip({
   console.log({peers, myPresence})
 
   const allUsers = [
-    ...(currentUser ? [{
+    ...(currentUser && myPresence ? [{
       id: currentUser.id,
-      name: currentUser.email,
+      name: myPresence.name || currentUser.email,
       isCurrentUser: true
     }] : []),
     ...Object.entries(peers).map(([peerId, peer]) => ({
