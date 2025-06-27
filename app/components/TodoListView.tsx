@@ -332,6 +332,8 @@ function TodoListApp({
   const [showSettings, setShowSettings] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showCompletedUncategorized, setShowCompletedUncategorized] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editTitle, setEditTitle] = useState(todoList.name);
 
   // Sort todos by sublist and order
   console.log(todoList.todos)
@@ -359,6 +361,43 @@ function TodoListApp({
     }
   };
 
+  const startEditingTitle = () => {
+    if (!isOwner) return;
+    setEditingTitle(true);
+    setEditTitle(todoList.name);
+  };
+
+  const saveTitleEdit = async () => {
+    if (!editTitle.trim()) return;
+    
+    try {
+      await db.transact(db.tx.todoLists[todoList.id].update({
+        name: editTitle.trim(),
+        updatedAt: new Date().toISOString()
+      }));
+      setEditingTitle(false);
+      addToast("List name updated successfully", "success");
+    } catch (err) {
+      console.error("Failed to update list name:", err);
+      addToast("Failed to update list name. Please try again.", "error");
+    }
+  };
+
+  const cancelTitleEdit = () => {
+    setEditingTitle(false);
+    setEditTitle(todoList.name);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveTitleEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelTitleEdit();
+    }
+  };
+
   return (
     <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
       <div className="max-w-4xl mx-auto">
@@ -372,7 +411,39 @@ function TodoListApp({
               <span>←</span>
               <span>Back</span>
             </button>
-            <h2 className="tracking-wide text-3xl md:text-4xl text-gray-800 dark:text-gray-200 font-light">{todoList.name}</h2>
+            <div className="flex items-center space-x-2 group">
+              {editingTitle ? (
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onBlur={saveTitleEdit}
+                  onKeyDown={handleTitleKeyDown}
+                  className="tracking-wide text-3xl md:text-4xl font-light bg-transparent border-b-2 border-blue-500 focus:outline-none text-gray-800 dark:text-gray-200 min-w-0 max-w-full"
+                  autoFocus
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                />
+              ) : (
+                <h2 
+                  className={`tracking-wide text-3xl md:text-4xl text-gray-800 dark:text-gray-200 font-light ${isOwner ? 'cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 transition-colors' : ''}`}
+                  onClick={startEditingTitle}
+                  onDoubleClick={startEditingTitle}
+                  title={isOwner ? "Click to edit list name" : undefined}
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                >
+                  {todoList.name}
+                </h2>
+              )}
+              {isOwner && !editingTitle && (              <button
+                onClick={startEditingTitle}
+                className="text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 touch-manipulation text-xs"
+                title="Edit list name"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                edit
+              </button>
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -1080,34 +1151,99 @@ function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
   deleteTodo: (todo: Todo) => void;
 }) {
   const sortedTodos = [...todos].sort((a, b) => (a.order || 0) - (b.order || 0));
+  const [editingTodo, setEditingTodo] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
+  const startEditing = (todo: Todo) => {
+    if (!canWrite) return;
+    setEditingTodo(todo.id);
+    setEditText(todo.text);
+  };
+
+  const saveEdit = async (todoId: string) => {
+    if (!editText.trim()) return;
+    
+    try {
+      await db.transact(db.tx.todos[todoId].update({
+        text: editText.trim(),
+        updatedAt: new Date().toISOString()
+      }));
+      setEditingTodo(null);
+    } catch (err) {
+      console.error("Failed to update todo:", err);
+      // Could add toast notification here
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingTodo(null);
+    setEditText("");
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, todoId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveEdit(todoId);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
 
   return (
     <div className="divide-y divide-gray-300 dark:divide-gray-600">
       {sortedTodos.map((todo) => (
-        <div key={todo.id} className="flex items-center h-10">
+        <div key={todo.id} className="flex items-center min-h-[2.5rem] group">
           <div className="h-full px-2 flex items-center justify-center">
             <input
               type="checkbox"
-              className="cursor-pointer"
+              className="cursor-pointer w-4 h-4"
               checked={todo.done}
               onChange={() => canWrite && toggleTodo(todo)}
               disabled={!canWrite}
             />
           </div>
           <div className="flex-1 px-2 overflow-hidden flex items-center">
-            {todo.done ? (
-              <span className="line-through text-gray-500 dark:text-gray-400">{todo.text}</span>
+            {editingTodo === todo.id ? (
+              <input
+                type="text"
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onBlur={() => saveEdit(todo.id)}
+                onKeyDown={(e) => handleKeyDown(e, todo.id)}
+                className="w-full px-2 py-2 text-sm border border-blue-300 dark:border-blue-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                autoFocus
+              />
             ) : (
-              <span className="text-gray-900 dark:text-white">{todo.text}</span>
+              <span 
+                className={`cursor-pointer select-none ${todo.done ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} ${canWrite ? 'hover:bg-gray-50 dark:hover:bg-gray-700' : ''} rounded px-2 py-2 w-full min-h-[2rem] flex items-center transition-colors`}
+                onDoubleClick={() => startEditing(todo)}
+                onClick={() => startEditing(todo)}
+                style={{ WebkitTapHighlightColor: 'transparent' }} // Removes blue highlight on mobile
+              >
+                {todo.text}
+              </span>
             )}
           </div>
-          {canWrite && (
-            <button
-              className="h-full px-2 flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-300"
-              onClick={() => deleteTodo(todo)}
-            >
-              ×
-            </button>
+          {canWrite && editingTodo !== todo.id && (
+            <div className="flex items-center">
+              <button
+                className="h-full px-3 py-2 flex items-center justify-center text-gray-300 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation text-xs"
+                onClick={() => startEditing(todo)}
+                title="Edit todo"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                edit
+              </button>
+              <button
+                className="h-full px-3 py-2 flex items-center justify-center text-gray-300 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation"
+                onClick={() => deleteTodo(todo)}
+                title="Delete todo"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                ×
+              </button>
+            </div>
           )}
         </div>
       ))}
@@ -1133,6 +1269,8 @@ function SublistSection({
   const [showCompletedInSublist, setShowCompletedInSublist] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [editName, setEditName] = useState(sublist.name);
   
   const visibleTodos = todoList.hideCompleted 
     ? sublist.todos.filter(todo => !todo.done)
@@ -1152,6 +1290,41 @@ function SublistSection({
     });
   };
 
+  const startEditingName = () => {
+    if (!isOwner) return;
+    setEditingName(true);
+    setEditName(sublist.name);
+  };
+
+  const saveNameEdit = async () => {
+    if (!editName.trim()) return;
+    
+    try {
+      await db.transact(db.tx.sublists[sublist.id].update({
+        name: editName.trim()
+      }));
+      setEditingName(false);
+    } catch (err) {
+      console.error("Failed to update sublist name:", err);
+      setShowError("Failed to update category name. Please try again.");
+    }
+  };
+
+  const cancelNameEdit = () => {
+    setEditingName(false);
+    setEditName(sublist.name);
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveNameEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelNameEdit();
+    }
+  };
+
   return (
     <div className="border-b border-gray-300 dark:border-gray-600">
       {showError && (
@@ -1160,14 +1333,46 @@ function SublistSection({
         </div>
       )}
       
-      <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-900 dark:text-white">
-          {sublist.name} ({totalCount - completedCount}/{totalCount})
-        </span>
-        {isOwner && (
+      <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 flex items-center justify-between group">
+        <div className="flex items-center space-x-2 flex-1">
+          {editingName ? (
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={saveNameEdit}
+              onKeyDown={handleNameKeyDown}
+              className="text-sm font-medium bg-white dark:bg-gray-600 text-gray-900 dark:text-white border border-blue-300 dark:border-blue-600 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1"
+              autoFocus
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            />
+          ) : (
+            <span 
+              className={`text-sm font-medium text-gray-900 dark:text-white ${isOwner ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 rounded px-2 py-1 -mx-2 -my-1 transition-colors' : ''} min-h-[2rem] flex items-center`}
+              onDoubleClick={startEditingName}
+              onClick={startEditingName}
+              title={isOwner ? "Click to edit category name" : undefined}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              {sublist.name} ({totalCount - completedCount}/{totalCount})
+            </span>
+          )}
+          {isOwner && !editingName && (
+            <button
+              onClick={startEditingName}
+              className="text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 touch-manipulation text-xs"
+              title="Edit category name"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              edit
+            </button>
+          )}
+        </div>
+        {isOwner && !editingName && (
           <button
             onClick={() => setShowDeleteConfirm(true)}
-            className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
+            className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs md:opacity-0 md:group-hover:opacity-100 transition-opacity px-2 py-1 touch-manipulation"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
           >
             Delete
           </button>
