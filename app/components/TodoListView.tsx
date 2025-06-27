@@ -1373,7 +1373,8 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
         </div>
       )}
       <form onSubmit={handleSubmit} className="space-y-2">
-        <div className="flex space-x-2">
+        {/* Mobile: Stack vertically, Desktop: Horizontal layout */}
+        <div className="flex flex-col sm:flex-row gap-2">
           <input
             className="flex-1 px-3 py-2 outline-none bg-transparent border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
             autoFocus
@@ -1384,7 +1385,7 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
           <select
             value={selectedSublist}
             onChange={(e) => setSelectedSublist(e.target.value)}
-            className="px-2 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            className="px-2 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white sm:w-auto w-full"
           >
             <option value="">No category</option>
             {todoList.sublists.map(sublist => (
