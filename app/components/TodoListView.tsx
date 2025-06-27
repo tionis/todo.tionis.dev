@@ -86,7 +86,6 @@ export default function TodoListView({ slug }: TodoListViewProps) {
 
   useEffect(() => {
     if (user && data?.todoLists?.[0]) {
-      console.log({data})
       const todoList = data.todoLists[0];
       const userEmail = user.email.toLowerCase();
       
@@ -1163,13 +1162,6 @@ function TransferOwnershipModal({
       return;
     }
 
-    console.log("Transferring ownership", {
-      listId: todoList.id,
-      currentOwnerId: user.id,
-      newOwnerId: selectedMember.user.id,
-      selectedMemberId
-    });
-
     setIsTransferring(true);
     setShowError(null);
 
@@ -1310,7 +1302,6 @@ function OnlineUsersTooltip({
   const [showTooltip, setShowTooltip] = useState(false);
   
 
-  console.log({peers, myPresence})
 
   const allUsers = [
     ...(currentUser && myPresence ? [{
