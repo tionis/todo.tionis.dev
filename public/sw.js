@@ -54,8 +54,9 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Only handle GET requests
+  // Only handle GET requests and supported schemes
   if (request.method !== 'GET') return;
+  if (!['http:', 'https:'].includes(url.protocol)) return;
 
   // Handle navigation requests
   if (request.mode === 'navigate') {
@@ -66,7 +67,11 @@ self.addEventListener('fetch', (event) => {
           if (response.ok) {
             const responseClone = response.clone();
             caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone);
+              cache.put(request, responseClone).catch((error) => {
+                console.warn('Failed to cache navigation response:', error);
+              });
+            }).catch((error) => {
+              console.warn('Failed to open cache for navigation:', error);
             });
           }
           return response;
@@ -100,7 +105,11 @@ self.addEventListener('fetch', (event) => {
           if (response.ok) {
             const responseClone = response.clone();
             caches.open(STATIC_CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone);
+              cache.put(request, responseClone).catch((error) => {
+                console.warn('Failed to cache static asset:', error);
+              });
+            }).catch((error) => {
+              console.warn('Failed to open cache for static assets:', error);
             });
           }
           return response;
@@ -125,7 +134,11 @@ self.addEventListener('fetch', (event) => {
           if (response.ok) {
             const responseClone = response.clone();
             caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone);
+              cache.put(request, responseClone).catch((error) => {
+                console.warn('Failed to cache API response:', error);
+              });
+            }).catch((error) => {
+              console.warn('Failed to open cache for API responses:', error);
             });
           }
           return response;
@@ -160,7 +173,11 @@ self.addEventListener('fetch', (event) => {
         if (response.ok) {
           const responseClone = response.clone();
           caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
+            cache.put(request, responseClone).catch((error) => {
+              console.warn('Failed to cache default response:', error);
+            });
+          }).catch((error) => {
+            console.warn('Failed to open cache for default responses:', error);
           });
         }
         return response;
