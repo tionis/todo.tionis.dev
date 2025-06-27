@@ -2,6 +2,27 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { id, InstaQLEntity, User } from "@instantdb/react";
+import { 
+  DndContext, 
+  closestCenter, 
+  KeyboardSensor, 
+  PointerSensor, 
+  useSensor, 
+  useSensors,
+  DragOverlay,
+  DragStartEvent,
+  DragEndEvent,
+  DragOverEvent,
+  useDroppable
+} from '@dnd-kit/core';
+import { 
+  arrayMove, 
+  SortableContext, 
+  sortableKeyboardCoordinates, 
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { db } from '../../lib/db';
 import { copyToClipboard, getListUrl } from "../../lib/utils";
 import { executeTransaction, canUserWrite, canUserView, transferListOwnership } from "../../lib/transactions";
@@ -624,67 +645,307 @@ function TodoListApp({
             />
           )}
 
-          <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-            {canWrite && <TodoForm todoList={todoList} />}
-            
-            {/* Sublists */}
-            {sublists.map(sublist => (
-              <SublistSection 
-                key={sublist.id} 
-                sublist={sublist} 
-                todoList={todoList}
-                canWrite={canWrite}
-                isOwner={isOwner}
-                toggleTodo={toggleTodo}
-                deleteTodo={deleteTodo}
-              />
-            ))}
-
-            {/* Add new sublist button */}
-            {canWrite && <AddSublistForm todoList={todoList} />}
-            
-            {/* Todos without sublist */}
-            {(visibleTodos.length > 0 || (todosWithoutSublist.length > 0 && todoList.hideCompleted)) && (
-              <div>
-                <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white">
-                  Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
-                </div>
-                {visibleTodos.length > 0 && (
-                  <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
-                )}
-                {todoList.hideCompleted && !showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
-                  <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
-                    <button
-                      onClick={() => setShowCompletedUncategorized(true)}
-                      className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
-                    >
-                      <span>▼</span>
-                      <span>Show {completedUncategorizedTodos.length} completed item{completedUncategorizedTodos.length !== 1 ? 's' : ''}</span>
-                    </button>
-                  </div>
-                )}
-                {todoList.hideCompleted && showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
-                  <div>
-                    <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
-                      <button
-                        onClick={() => setShowCompletedUncategorized(false)}
-                        className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
-                      >
-                        <span>▲</span>
-                        <span>Hide completed items</span>
-                      </button>
-                    </div>
-                    <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
-                  </div>
-                )}
-              </div>
-            )}
-            
-            <ActionBar todoList={todoList} canWrite={canWrite} deleteCompleted={deleteCompleted} />
-          </div>
+          <GlobalDragWrapper 
+            todoList={todoList}
+            sublists={sublists}
+            canWrite={canWrite}
+            isOwner={isOwner}
+            toggleTodo={toggleTodo}
+            deleteTodo={deleteTodo}
+            visibleTodos={visibleTodos}
+            todosWithoutSublist={todosWithoutSublist}
+            completedUncategorizedTodos={completedUncategorizedTodos}
+            showCompletedUncategorized={showCompletedUncategorized}
+            setShowCompletedUncategorized={setShowCompletedUncategorized}
+            deleteCompleted={deleteCompleted}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+// Droppable Uncategorized Section Component
+function DroppableUncategorizedSection({
+  visibleTodos,
+  todosWithoutSublist,
+  completedUncategorizedTodos,
+  showCompletedUncategorized,
+  setShowCompletedUncategorized,
+  canWrite,
+  toggleTodo,
+  deleteTodo,
+  todoList
+}: {
+  visibleTodos: Todo[];
+  todosWithoutSublist: Todo[];
+  completedUncategorizedTodos: Todo[];
+  showCompletedUncategorized: boolean;
+  setShowCompletedUncategorized: (show: boolean) => void;
+  canWrite: boolean;
+  toggleTodo: (todo: Todo) => void;
+  deleteTodo: (todo: Todo) => void;
+  todoList: TodoList;
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: 'sublist-uncategorized',
+  });
+
+  return (
+    <div>
+      <div 
+        ref={setNodeRef}
+        className={`bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white transition-colors ${isOver ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600' : ''}`}
+      >
+        Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
+        {canWrite && isOver && <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">(Drop here)</span>}
+        {canWrite && !isOver && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(Drop todos here)</span>}
+      </div>
+      {visibleTodos.length > 0 && (
+        <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={undefined} />
+      )}
+      {todoList.hideCompleted && !showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
+        <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+          <button
+            onClick={() => setShowCompletedUncategorized(true)}
+            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+          >
+            <span>▼</span>
+            <span>Show {completedUncategorizedTodos.length} completed item{completedUncategorizedTodos.length !== 1 ? 's' : ''}</span>
+          </button>
+        </div>
+      )}
+      {todoList.hideCompleted && showCompletedUncategorized && completedUncategorizedTodos.length > 0 && (
+        <div>
+          <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+            <button
+              onClick={() => setShowCompletedUncategorized(false)}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+            >
+              <span>▲</span>
+              <span>Hide completed items</span>
+            </button>
+          </div>
+          <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={undefined} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Global Drag and Drop Wrapper Component
+function GlobalDragWrapper({
+  todoList,
+  sublists,
+  canWrite,
+  isOwner,
+  toggleTodo,
+  deleteTodo,
+  visibleTodos,
+  todosWithoutSublist,
+  completedUncategorizedTodos,
+  showCompletedUncategorized,
+  setShowCompletedUncategorized,
+  deleteCompleted
+}: {
+  todoList: TodoList;
+  sublists: Sublist[];
+  canWrite: boolean;
+  isOwner: boolean;
+  toggleTodo: (todo: Todo) => void;
+  deleteTodo: (todo: Todo) => void;
+  visibleTodos: Todo[];
+  todosWithoutSublist: Todo[];
+  completedUncategorizedTodos: Todo[];
+  showCompletedUncategorized: boolean;
+  setShowCompletedUncategorized: (show: boolean) => void;
+  deleteCompleted: (todos: Todo[]) => void;
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const { addToast } = useToast();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    // Handle drag over between different containers (sublists)
+    const { active, over } = event;
+    
+    if (!over) return;
+    
+    const activeId = active.id as string;
+    const overId = over.id as string;
+    
+    // Find the active todo
+    const activeTodo = todoList.todos.find(t => t.id === activeId);
+    if (!activeTodo) return;
+    
+    // Check if we're dropping over a sublist header or todo in a different sublist
+    const overTodo = todoList.todos.find(t => t.id === overId);
+    const currentSublistId = activeTodo.sublist?.id;
+    const targetSublistId = overTodo?.sublist?.id;
+    
+    // If moving between different sublists, update immediately for visual feedback
+    if (currentSublistId !== targetSublistId) {
+      // This will be handled in handleDragEnd for the actual database update
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+    
+    // Find the active todo
+    const activeTodo = todoList.todos.find(t => t.id === activeId);
+    if (!activeTodo) return;
+    
+    try {
+      // Check if we're dropping over a sublist header (drop zone)
+      if (overId.startsWith('sublist-')) {
+        const targetSublistId = overId.replace('sublist-', '');
+        
+        // Move todo to different sublist
+        let updateTx = db.tx.todos[activeId].update({
+          updatedAt: new Date().toISOString()
+        });
+        
+        if (targetSublistId === 'uncategorized') {
+          // Move to uncategorized (remove sublist link)
+          updateTx = updateTx.unlink({ sublist: activeTodo.sublist?.id });
+        } else {
+          // Move to specific sublist
+          updateTx = updateTx.link({ sublist: targetSublistId });
+        }
+        
+        await db.transact(updateTx);
+        return;
+      }
+      
+      // Find the over todo
+      const overTodo = todoList.todos.find(t => t.id === overId);
+      if (!overTodo) return;
+      
+      const currentSublistId = activeTodo.sublist?.id;
+      const targetSublistId = overTodo.sublist?.id;
+      
+      // If moving between different sublists
+      if (currentSublistId !== targetSublistId) {
+        let updateTx = db.tx.todos[activeId].update({
+          updatedAt: new Date().toISOString()
+        });
+        
+        if (targetSublistId) {
+          updateTx = updateTx.link({ sublist: targetSublistId });
+        } else {
+          updateTx = updateTx.unlink({ sublist: currentSublistId });
+        }
+        
+        await db.transact(updateTx);
+        return;
+      }
+      
+      // If reordering within the same sublist
+      const todosInSameSublist = todoList.todos.filter(t => 
+        (t.sublist?.id || null) === (currentSublistId || null)
+      ).sort((a, b) => (a.order || 0) - (b.order || 0));
+      
+      const oldIndex = todosInSameSublist.findIndex(t => t.id === activeId);
+      const newIndex = todosInSameSublist.findIndex(t => t.id === overId);
+      
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const reorderedTodos = arrayMove(todosInSameSublist, oldIndex, newIndex);
+        
+        const updates = reorderedTodos.map((todo, index) => 
+          db.tx.todos[todo.id].update({ 
+            order: index + 1,
+            updatedAt: new Date().toISOString()
+          })
+        );
+
+        await db.transact(updates);
+      }
+    } catch (err) {
+      console.error("Failed to move todo:", err);
+      addToast("Failed to move todo. Please try again.", "error");
+    }
+  };
+
+  const activeTodo = activeId ? todoList.todos.find(todo => todo.id === activeId) : null;
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+        {canWrite && <TodoForm todoList={todoList} />}
+        
+        {/* Sublists */}
+        {sublists.map(sublist => (
+          <SublistSection 
+            key={sublist.id} 
+            sublist={sublist} 
+            todoList={todoList}
+            canWrite={canWrite}
+            isOwner={isOwner}
+            toggleTodo={toggleTodo}
+            deleteTodo={deleteTodo}
+          />
+        ))}
+
+        {/* Add new sublist button */}
+        {canWrite && <AddSublistForm todoList={todoList} />}
+        
+        {/* Todos without sublist */}
+        {(visibleTodos.length > 0 || (todosWithoutSublist.length > 0 && todoList.hideCompleted)) && (
+          <DroppableUncategorizedSection
+            visibleTodos={visibleTodos}
+            todosWithoutSublist={todosWithoutSublist}
+            completedUncategorizedTodos={completedUncategorizedTodos}
+            showCompletedUncategorized={showCompletedUncategorized}
+            setShowCompletedUncategorized={setShowCompletedUncategorized}
+            canWrite={canWrite}
+            toggleTodo={toggleTodo}
+            deleteTodo={deleteTodo}
+            todoList={todoList}
+          />
+        )}
+        
+        <ActionBar todoList={todoList} canWrite={canWrite} deleteCompleted={deleteCompleted} />
+      </div>
+      
+      <DragOverlay>
+        {activeTodo ? (
+          <div className="bg-white dark:bg-gray-800 shadow-lg rounded border p-2">
+            <span className={`${activeTodo.done ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'}`}>
+              {activeTodo.text}
+            </span>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -1571,11 +1832,148 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
   );
 }
 
-function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: { 
+// Draggable Todo Item Component
+function SortableTodoItem({ 
+  todo, 
+  canWrite, 
+  editingTodo, 
+  editText, 
+  setEditingTodo, 
+  setEditText, 
+  startEditing, 
+  saveEdit, 
+  handleKeyDown, 
+  toggleTodo, 
+  deleteTodo,
+  isDragOverlay = false
+}: {
+  todo: Todo;
+  canWrite: boolean;
+  editingTodo: string | null;
+  editText: string;
+  setEditingTodo: (id: string | null) => void;
+  setEditText: (text: string) => void;
+  startEditing: (todo: Todo) => void;
+  saveEdit: (todoId: string) => void;
+  handleKeyDown: (e: React.KeyboardEvent, todoId: string) => void;
+  toggleTodo: (todo: Todo) => void;
+  deleteTodo: (todo: Todo) => void;
+  isDragOverlay?: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: todo.id,
+    disabled: !canWrite || editingTodo === todo.id
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      className={`flex items-center min-h-[2.5rem] group ${isDragOverlay ? 'bg-white dark:bg-gray-800 shadow-lg rounded border' : ''}`}
+    >
+      {/* Drag Handle */}
+      {canWrite && editingTodo !== todo.id && (
+        <div 
+          {...attributes}
+          {...listeners}
+          className="h-full px-2 flex items-center justify-center cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 touch-manipulation"
+          style={{ touchAction: 'none' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <circle cx="4" cy="4" r="1.5"/>
+            <circle cx="4" cy="8" r="1.5"/>
+            <circle cx="4" cy="12" r="1.5"/>
+            <circle cx="12" cy="4" r="1.5"/>
+            <circle cx="12" cy="8" r="1.5"/>
+            <circle cx="12" cy="12" r="1.5"/>
+          </svg>
+        </div>
+      )}
+      
+      {/* Checkbox */}
+      <div className="h-full px-2 flex items-center justify-center">
+        <input
+          type="checkbox"
+          className="cursor-pointer w-4 h-4"
+          checked={todo.done}
+          onChange={() => canWrite && toggleTodo(todo)}
+          disabled={!canWrite}
+        />
+      </div>
+      
+      {/* Todo Content */}
+      <div className="flex-1 px-2 overflow-hidden flex items-center">
+        {editingTodo === todo.id ? (
+          <input
+            type="text"
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onBlur={() => saveEdit(todo.id)}
+            onKeyDown={(e) => handleKeyDown(e, todo.id)}
+            className="w-full px-2 py-2 text-sm border border-blue-300 dark:border-blue-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            autoFocus
+          />
+        ) : (
+          <span 
+            className={`select-none ${todo.done ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} ${canWrite ? 'md:cursor-pointer md:hover:bg-gray-50 md:dark:hover:bg-gray-700' : ''} rounded px-2 py-2 w-full min-h-[2rem] flex items-center transition-colors`}
+            onDoubleClick={() => startEditing(todo)}
+            onClick={(e) => {
+              // Only allow click-to-edit on desktop (medium screens and up)
+              if (window.innerWidth >= 768) {
+                startEditing(todo);
+              }
+            }}
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            {todo.text}
+          </span>
+        )}
+      </div>
+      
+      {/* Action Buttons */}
+      {canWrite && editingTodo !== todo.id && (
+        <div className="flex items-center">
+          <button
+            className="h-full px-3 py-2 flex items-center justify-center text-gray-300 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation text-xs"
+            onClick={() => startEditing(todo)}
+            title="Edit todo"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            edit
+          </button>
+          <button
+            className="h-full px-3 py-2 flex items-center justify-center text-gray-300 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation"
+            onClick={() => deleteTodo(todo)}
+            title="Delete todo"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo, sublistId }: { 
   todos: Todo[]; 
   canWrite: boolean;
   toggleTodo: (todo: Todo) => void;
   deleteTodo: (todo: Todo) => void;
+  sublistId?: string;
 }) {
   const sortedTodos = [...todos].sort((a, b) => (a.order || 0) - (b.order || 0));
   const [editingTodo, setEditingTodo] = useState<string | null>(null);
@@ -1598,7 +1996,6 @@ function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
       setEditingTodo(null);
     } catch (err) {
       console.error("Failed to update todo:", err);
-      // Could add toast notification here
     }
   };
 
@@ -1618,68 +2015,26 @@ function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
   };
 
   return (
-    <div className="divide-y divide-gray-300 dark:divide-gray-600">
-      {sortedTodos.map((todo) => (
-        <div key={todo.id} className="flex items-center min-h-[2.5rem] group">
-          <div className="h-full px-2 flex items-center justify-center">
-            <input
-              type="checkbox"
-              className="cursor-pointer w-4 h-4"
-              checked={todo.done}
-              onChange={() => canWrite && toggleTodo(todo)}
-              disabled={!canWrite}
-            />
-          </div>
-          <div className="flex-1 px-2 overflow-hidden flex items-center">
-            {editingTodo === todo.id ? (
-              <input
-                type="text"
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                onBlur={() => saveEdit(todo.id)}
-                onKeyDown={(e) => handleKeyDown(e, todo.id)}
-                className="w-full px-2 py-2 text-sm border border-blue-300 dark:border-blue-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                autoFocus
-              />
-            ) : (
-              <span 
-                className={`select-none ${todo.done ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} ${canWrite ? 'md:cursor-pointer md:hover:bg-gray-50 md:dark:hover:bg-gray-700' : ''} rounded px-2 py-2 w-full min-h-[2rem] flex items-center transition-colors`}
-                onDoubleClick={() => startEditing(todo)}
-                onClick={(e) => {
-                  // Only allow click-to-edit on desktop (medium screens and up)
-                  if (window.innerWidth >= 768) {
-                    startEditing(todo);
-                  }
-                }}
-                style={{ WebkitTapHighlightColor: 'transparent' }} // Removes blue highlight on mobile
-              >
-                {todo.text}
-              </span>
-            )}
-          </div>
-          {canWrite && editingTodo !== todo.id && (
-            <div className="flex items-center">
-              <button
-                className="h-full px-3 py-2 flex items-center justify-center text-gray-300 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation text-xs"
-                onClick={() => startEditing(todo)}
-                title="Edit todo"
-                style={{ WebkitTapHighlightColor: 'transparent' }}
-              >
-                edit
-              </button>
-              <button
-                className="h-full px-3 py-2 flex items-center justify-center text-gray-300 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation"
-                onClick={() => deleteTodo(todo)}
-                title="Delete todo"
-                style={{ WebkitTapHighlightColor: 'transparent' }}
-              >
-                ×
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
+    <SortableContext items={sortedTodos.map(t => t.id)} strategy={verticalListSortingStrategy}>
+      <div className="divide-y divide-gray-300 dark:divide-gray-600">
+        {sortedTodos.map((todo) => (
+          <SortableTodoItem
+            key={todo.id}
+            todo={todo}
+            canWrite={canWrite}
+            editingTodo={editingTodo}
+            editText={editText}
+            setEditingTodo={setEditingTodo}
+            setEditText={setEditText}
+            startEditing={startEditing}
+            saveEdit={saveEdit}
+            handleKeyDown={handleKeyDown}
+            toggleTodo={toggleTodo}
+            deleteTodo={deleteTodo}
+          />
+        ))}
+      </div>
+    </SortableContext>
   );
 }
 
@@ -1703,6 +2058,11 @@ function SublistSection({
   const [showError, setShowError] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState(sublist.name);
+  
+  // Droppable for the sublist header
+  const { isOver, setNodeRef } = useDroppable({
+    id: `sublist-${sublist.id}`,
+  });
   
   const visibleTodos = todoList.hideCompleted 
     ? sublist.todos.filter(todo => !todo.done)
@@ -1765,7 +2125,10 @@ function SublistSection({
         </div>
       )}
       
-      <div className="bg-gray-50 dark:bg-gray-700 px-3 py-2 flex items-center justify-between group">
+      <div 
+        ref={setNodeRef}
+        className={`bg-gray-50 dark:bg-gray-700 px-3 py-2 flex items-center justify-between group transition-colors ${isOver ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600' : ''}`}
+      >
         <div className="flex items-center space-x-2 flex-1">
           {editingName ? (
             <input
@@ -1792,6 +2155,7 @@ function SublistSection({
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               {sublist.name} ({totalCount - completedCount}/{totalCount})
+              {canWrite && isOver && <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">(Drop here)</span>}
             </span>
           )}
           {isOwner && !editingName && (
@@ -1816,7 +2180,7 @@ function SublistSection({
         )}
       </div>
       {visibleTodos.length > 0 && (
-        <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
+        <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={sublist.id} />
       )}
       {todoList.hideCompleted && !showCompletedInSublist && completedTodos.length > 0 && (
         <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
@@ -1840,7 +2204,7 @@ function SublistSection({
               <span>Hide completed items</span>
             </button>
           </div>
-          <TodoListComponent todos={completedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} />
+          <TodoListComponent todos={completedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={sublist.id} />
         </div>
       )}
       {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
