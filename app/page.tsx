@@ -101,11 +101,11 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: any} | null>(null);
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
-  
-  const { isLoading, error, data } = db.useQuery({ 
-    todoLists: { 
-      $: { 
-        where: { 
+
+  const { isLoading: listsLoading, error: listsError, data: listsData } = db.useQuery({
+    todoLists: {
+      $: {
+        where: {
           or: [
             { "owner.id": user.id },
             { "members.user.id": user.id }
@@ -116,16 +116,25 @@ function AuthenticatedApp({ user }: { user: User }) {
       owner: {},
       todos: {},
       members: { user: {} }
-    },
-    invitations: {
-      $: { where: { email: user.email.toLowerCase(), status: 'pending' } }
     }
-  });
+  }) as unknown as { isLoading: boolean; error: Error | null; data: { todoLists: any[] } | null };
+
+  const userEmail = user.email?.toLowerCase();
+  const { isLoading: invitationsLoading, error: invitationsError, data: invitationsData } = db.useQuery(
+    userEmail ? {
+      invitations: {
+        $: { where: { email: userEmail, status: 'pending' } }
+      }
+    } : null
+  ) as unknown as { isLoading: boolean; error: Error | null; data: { invitations: any[] } | null };
+
+  const isLoading = listsLoading || invitationsLoading;
+  const error = listsError || invitationsError;
 
   if (isLoading) return <LoadingSpinner message="Loading your lists..." />;
   if (error) return <ErrorDisplay message={error.message} />;
 
-  const pendingInvitationsCount = data.invitations?.length || 0;
+  const pendingInvitationsCount = invitationsData?.invitations?.length || 0;
 
   const createNewList = async (listName: string) => {
     const slug = generateSlug();
@@ -198,7 +207,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         </div>
 
-        {!data.todoLists || data.todoLists.length === 0 ? (
+        {!listsData?.todoLists || listsData.todoLists.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 mb-4">You don't have any todo lists yet.</p>
             <button
@@ -210,7 +219,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {data.todoLists.map(list => (
+            {listsData.todoLists.map(list => (
               <TodoListCard 
                 key={list.id} 
                 list={list} 

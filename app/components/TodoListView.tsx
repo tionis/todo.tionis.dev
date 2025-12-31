@@ -107,7 +107,7 @@ export default function TodoListView({ slug }: TodoListViewProps) {
   }>({ accepting: false, accepted: false, error: null });
 
   useEffect(() => {
-    if (user && data?.todoLists?.[0]) {
+    if (user?.email && data?.todoLists?.[0]) {
       const todoList = data.todoLists[0];
       const userEmail = user.email.toLowerCase();
       
@@ -183,10 +183,10 @@ export default function TodoListView({ slug }: TodoListViewProps) {
   }
 
   return (
-    <TodoListApp 
-      todoList={todoList} 
-      user={user} 
-      isOwner={!!isOwner} 
+    <TodoListApp
+      todoList={todoList}
+      user={user ?? null}
+      isOwner={!!isOwner}
       canWrite={!!canWrite}
       autoAcceptStatus={autoAcceptStatus}
       toggleTodo={toggleTodo}

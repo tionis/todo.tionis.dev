@@ -21,7 +21,7 @@ export default function InvitationsView({}: InvitationsViewProps) {
 
   // Query for invitations sent to the current user's email
   const { isLoading, error, data } = db.useQuery(
-    user ? {
+    user?.email ? {
       invitations: {
         $: { where: { email: user.email.toLowerCase(), status: 'pending' } },
         list: { owner: {} },
