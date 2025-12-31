@@ -15,21 +15,33 @@ export function useHashRouter(routes: Route[]) {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.slice(1); // Remove the # character
-      
+
       if (!hash || hash === '/') {
         setCurrentRoute(null);
         setRouteParams({});
         return;
       }
 
-      // Check for /list/:slug pattern
+      // Check for /list/:id pattern (Jazz CoValue IDs)
       const listMatch = hash.match(/^\/list\/(.+)$/);
       if (listMatch) {
-        const slug = decodeURIComponent(listMatch[1]);
-        const route = routes.find(r => r.path === '/list/:slug');
+        const id = decodeURIComponent(listMatch[1]);
+        const route = routes.find(r => r.path === '/list/:id');
         if (route) {
           setCurrentRoute(route);
-          setRouteParams({ slug });
+          setRouteParams({ id });
+          return;
+        }
+      }
+
+      // Check for /invite/:inviteLink pattern (Jazz invite links)
+      const inviteMatch = hash.match(/^\/invite\/(.+)$/);
+      if (inviteMatch) {
+        const inviteLink = decodeURIComponent(inviteMatch[1]);
+        const route = routes.find(r => r.path === '/invite/:inviteLink');
+        if (route) {
+          setCurrentRoute(route);
+          setRouteParams({ inviteLink });
           return;
         }
       }
@@ -50,7 +62,7 @@ export function useHashRouter(routes: Route[]) {
 
     // Listen for hash changes
     window.addEventListener('hashchange', handleHashChange);
-    
+
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
     };

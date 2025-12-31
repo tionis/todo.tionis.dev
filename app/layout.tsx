@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import ServiceWorkerRegistration from "./components/ServiceWorkerRegistration";
 import ToastContainer from "./components/Toast";
 import OfflineIndicator from "./components/OfflineIndicator";
+import { JazzProvider } from "../lib/jazz";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,12 +55,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Suspense fallback={null}>
-          <ServiceWorkerRegistration />
-        </Suspense>
-        <OfflineIndicator />
-        <ToastContainer />
-        {children}
+        <JazzProvider>
+          <Suspense fallback={null}>
+            <ServiceWorkerRegistration />
+          </Suspense>
+          <OfflineIndicator />
+          <ToastContainer />
+          {children}
+        </JazzProvider>
       </body>
     </html>
   );

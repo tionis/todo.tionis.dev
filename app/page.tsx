@@ -1,31 +1,35 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import { id, User } from "@instantdb/react";
-import { db } from "../lib/db";
-import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
-import { executeTransaction, canUserWrite, canUserView } from "../lib/transactions";
+import { Group, ID } from "jazz-tools";
+import { useAccount, useCoState } from "../lib/jazz";
+import { TodoList, ListOfTodos, ListOfSublists, TodoAccount, TodoAccountRoot } from "../lib/schema";
+import { copyToClipboard } from "../lib/utils";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
 import { useHashRouter } from "./components/HashRouter";
 import TodoListView from "./components/TodoListView";
 import InvitationsView from "./components/InvitationsView";
-import type { AppSchema } from "../lib/db";
+
+const PENDING_INVITE_KEY = 'pendingInviteHash';
 
 function App() {
   const [mounted, setMounted] = useState(false);
-  const { isLoading, user, error } = db.useAuth();
+  const { me, logOut } = useAccount({ resolve: { root: { todoLists: { $each: true } } } });
 
   // Define routes for hash router
   const routes = useMemo(() => [
     {
-      path: '/list/:slug',
+      path: '/list/:id',
       component: TodoListView,
     },
     {
       path: '/invitations',
+      component: InvitationsView,
+    },
+    {
+      path: '/invite/:inviteLink',
       component: InvitationsView,
     }
   ], []);
@@ -36,129 +40,111 @@ function App() {
     setMounted(true);
   }, []);
 
+  // Store invite URL before auth, restore after
+  useEffect(() => {
+    if (!mounted) return;
+
+    const hash = window.location.hash;
+
+    // If we're on an invite URL and not logged in, store it
+    if (hash.includes('/invite/') && !me) {
+      sessionStorage.setItem(PENDING_INVITE_KEY, hash);
+    }
+
+    // If we just logged in and have a pending invite, restore it
+    if (me && me.root) {
+      const pendingInvite = sessionStorage.getItem(PENDING_INVITE_KEY);
+      if (pendingInvite) {
+        sessionStorage.removeItem(PENDING_INVITE_KEY);
+        // Restore the invite URL
+        window.location.hash = pendingInvite.replace('#', '');
+      }
+    }
+  }, [mounted, me]);
+
   // Prevent hydration mismatch by showing loading state until mounted
   if (!mounted) {
     return <LoadingSpinner />;
   }
 
-  // If we have a current route, render that component
+  // Jazz handles auth UI automatically through PassphraseAuth
+  // If not logged in, the provider will show the auth UI
+  // Check auth BEFORE routing to prevent accessing old list IDs
+  if (!me) {
+    return <LoadingSpinner message="Loading..." />;
+  }
+
+  // Wait for account root to be loaded before routing
+  if (!me.root) {
+    return <LoadingSpinner message="Setting up your account..." />;
+  }
+
+  // If we have a current route, render that component (only after auth check)
   if (currentRoute) {
+    // For list routes, validate that the list ID belongs to this user or clear the hash
+    if (currentRoute.path === '/list/:id' && routeParams.id) {
+      const userListIds = me.root.todoLists?.map(list => list?.id).filter(Boolean) || [];
+      if (!userListIds.includes(routeParams.id)) {
+        // List ID not in user's lists - could be shared list or invalid
+        // Let TodoListView handle it (it will show error with "Go Home" button)
+      }
+    }
+
     const RouteComponent = currentRoute.component;
     return <RouteComponent {...routeParams} {...(currentRoute.props || {})} />;
   }
 
-  if (isLoading) return <LoadingSpinner />;
-  if (error) return <ErrorDisplay message={error.message} />;
-  if (user) return <AuthenticatedApp user={user} />;
-  return <LandingPage />;
+  return <AuthenticatedApp />;
 }
 
-function LandingPage() {
-  const router = useRouter();
-  const [sentEmail, setSentEmail] = useState("");
-
-  return (
-    <div className="font-mono min-h-screen bg-background flex justify-center items-center flex-col space-y-8">
-      <div className="text-center space-y-4">
-        <h1 className="tracking-wide text-6xl text-gray-300">Smart Todos</h1>
-        <p className="text-xl text-gray-500">Collaborative todo lists with sublists and permissions</p>
-      </div>
-
-      <div className="space-y-4 w-full max-w-md">
-        <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-6 bg-white dark:bg-gray-800">
-          <h3 className="text-lg font-medium mb-4 text-center text-gray-900 dark:text-white">Sign In to Get Started</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 text-center">
-            Create and manage your todo lists with real-time collaboration
-          </p>
-          {!sentEmail ? (
-            <EmailStep onSendEmail={setSentEmail} />
-          ) : (
-            <CodeStep sentEmail={sentEmail} />
-          )}
-        </div>
-      </div>
-
-      <div className="text-center space-y-2 text-sm text-gray-500 max-w-2xl">
-        <p>Features:</p>
-        <ul className="space-y-1">
-          <li>• Real-time collaboration</li>
-          <li>• Organize with sublists/categories</li>
-          <li>• Flexible permissions (public, private, members-only)</li>
-          <li>• Works offline</li>
-          <li>• Share with simple URLs</li>
-        </ul>
-        <p className="mt-4 text-xs">
-          Already have a list URL? Use the new format: yoursite.com/#/list/your-slug<br/>
-          Check your invitations at: yoursite.com/#/invitations
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function AuthenticatedApp({ user }: { user: User }) {
-  const router = useRouter();
+function AuthenticatedApp() {
+  const { me, logOut } = useAccount({ resolve: { root: { todoLists: { $each: true } } } });
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: any} | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: TodoList} | null>(null);
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
-  
-  const { isLoading, error, data } = db.useQuery({ 
-    todoLists: { 
-      $: { 
-        where: { 
-          or: [
-            { "owner.id": user.id },
-            { "members.user.id": user.id }
-          ]
-        },
-        order: { createdAt: "desc" }
-      },
-      owner: {},
-      todos: {},
-      members: { user: {} }
-    },
-    invitations: {
-      $: { where: { email: user.email.toLowerCase(), status: 'pending' } }
-    }
-  });
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
-  if (isLoading) return <LoadingSpinner message="Loading your lists..." />;
-  if (error) return <ErrorDisplay message={error.message} />;
+  if (!me || !me.root) {
+    return <LoadingSpinner message="Loading your lists..." />;
+  }
 
-  const pendingInvitationsCount = data.invitations?.length || 0;
+  const todoLists = me.root.todoLists || [];
 
   const createNewList = async (listName: string) => {
-    const slug = generateSlug();
-    
-    const success = await executeTransaction(
-      db.tx.todoLists[id()]
-        .update({
-          name: listName,
-          slug,
-          permission: "private-write",
-          hideCompleted: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        })
-        .link({ owner: user.id }),
-      "Failed to create list"
-    );
-    
-    if (success) {
-      window.location.hash = `/list/${slug}`;
-    } else {
+    try {
+      // Create a new group for this list's permissions
+      const listGroup = Group.create();
+      listGroup.addMember(me, "admin");
+
+      // Create the todo list
+      const newList = TodoList.create({
+        name: listName,
+        hideCompleted: false,
+        createdAt: new Date().toISOString(),
+        todos: ListOfTodos.create([], { owner: listGroup }),
+        sublists: ListOfSublists.create([], { owner: listGroup }),
+      }, { owner: listGroup });
+
+      // Add to user's list of todo lists
+      me.root.todoLists?.push(newList);
+
+      // Navigate to the new list
+      window.location.hash = `/list/${newList.id}`;
+    } catch (err) {
+      console.error("Failed to create list:", err);
       setShowErrorModal({show: true, message: "Failed to create list. Please try again."});
     }
   };
 
-  const deleteList = async (list: any) => {
-    const success = await executeTransaction([
-      ...list.todos.map((todo: any) => db.tx.todos[todo.id].delete()),
-      ...list.members.map((member: any) => db.tx.listMembers[member.id].delete()),
-      db.tx.todoLists[list.id].delete()
-    ], "Failed to delete list");
-    
-    if (!success) {
+  const deleteList = async (list: TodoList) => {
+    try {
+      // Remove from user's list
+      const index = me.root.todoLists?.findIndex(l => l?.id === list.id);
+      if (index !== undefined && index >= 0) {
+        me.root.todoLists?.splice(index, 1);
+      }
+    } catch (err) {
+      console.error("Failed to delete list:", err);
       setShowErrorModal({show: true, message: "Failed to delete list. Please try again."});
     }
   };
@@ -169,20 +155,9 @@ function AuthenticatedApp({ user }: { user: User }) {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="tracking-wide text-4xl text-gray-300 mb-2">Your Todo Lists</h1>
-            <p className="text-gray-500">Welcome back, {user.email}</p>
+            <p className="text-gray-500">Welcome back, {me.profile?.name || "User"}</p>
           </div>
           <div className="flex space-x-3">
-            <button
-              onClick={() => window.location.hash = '/invitations'}
-              className="relative px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
-            >
-              Invitations
-              {pendingInvitationsCount > 0 && (
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                  {pendingInvitationsCount}
-                </span>
-              )}
-            </button>
             <button
               onClick={() => setShowCreateModal(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -190,7 +165,14 @@ function AuthenticatedApp({ user }: { user: User }) {
               New List
             </button>
             <button
-              onClick={() => db.auth.signOut()}
+              onClick={() => setShowProfileModal(true)}
+              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+              title="Profile Settings"
+            >
+              Profile
+            </button>
+            <button
+              onClick={() => logOut()}
               className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
             >
               Sign Out
@@ -198,7 +180,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         </div>
 
-        {!data.todoLists || data.todoLists.length === 0 ? (
+        {todoLists.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 mb-4">You don't have any todo lists yet.</p>
             <button
@@ -210,11 +192,10 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {data.todoLists.map(list => (
-              <TodoListCard 
-                key={list.id} 
-                list={list} 
-                user={user} 
+            {todoLists.map(list => list && (
+              <TodoListCard
+                key={list.id}
+                list={list}
                 onDelete={(list) => setShowDeleteModal({show: true, list})}
               />
             ))}
@@ -223,7 +204,7 @@ function AuthenticatedApp({ user }: { user: User }) {
 
         {/* Create List Modal */}
         {showCreateModal && (
-          <CreateListModal 
+          <CreateListModal
             onClose={() => setShowCreateModal(false)}
             onCreate={createNewList}
           />
@@ -249,247 +230,58 @@ function AuthenticatedApp({ user }: { user: User }) {
             onClose={() => setShowErrorModal(null)}
           />
         )}
+
+        {/* Profile Modal */}
+        {showProfileModal && (
+          <ProfileModal
+            onClose={() => setShowProfileModal(false)}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function TodoListCard({ 
-  list, 
-  user,
-  onDelete 
-}: { 
-  list: any; 
-  user: User;
-  onDelete: (list: any) => void;
+function TodoListCard({
+  list,
+  onDelete
+}: {
+  list: TodoList;
+  onDelete: (list: TodoList) => void;
 }) {
-  const router = useRouter();
-  const [showShareModal, setShowShareModal] = useState(false);
-  
-  const isOwner = list.owner && list.owner.id === user.id;
-  const totalTodos = list.todos.length;
-  const completedTodos = list.todos.filter((todo: any) => todo.done).length;
+  const totalTodos = list.todos?.length || 0;
+  const completedTodos = list.todos?.filter((todo) => todo?.done).length || 0;
   const remainingTodos = totalTodos - completedTodos;
-
-  const deleteList = () => {
-    onDelete(list);
-  };
 
   return (
     <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow bg-white dark:bg-gray-800">
       <div className="flex justify-between items-start mb-3">
-        <h3 
+        <h3
           className="font-medium text-lg cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 text-gray-900 dark:text-white"
-          onClick={() => window.location.hash = `/list/${list.slug}`}
+          onClick={() => window.location.hash = `/list/${list.id}`}
         >
           {list.name}
         </h3>
-        <div className="flex space-x-1">
-          <button
-            onClick={() => setShowShareModal(true)}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm"
-            title="Share"
-          >
-            🔗
-          </button>
-          {isOwner && (
-            <button
-              onClick={deleteList}
-              className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm"
-              title="Delete"
-            >
-              🗑️
-            </button>
-          )}
-        </div>
+        <button
+          onClick={() => onDelete(list)}
+          className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm"
+          title="Delete"
+        >
+          🗑️
+        </button>
       </div>
-      
+
       <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
         <p>{remainingTodos} remaining, {completedTodos} completed</p>
-        <p>Permission: {list.permission}</p>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {isOwner ? "You own this list" : "You're a member"}
-        </p>
       </div>
 
       <button
-        onClick={() => window.location.hash = `/list/${list.slug}`}
+        onClick={() => window.location.hash = `/list/${list.id}`}
         className="w-full mt-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-sm text-gray-900 dark:text-white"
       >
         Open List
       </button>
-
-      {showShareModal && (
-        <ShareModal 
-          list={list} 
-          onClose={() => setShowShareModal(false)} 
-        />
-      )}
     </div>
-  );
-}
-
-function ShareModal({ 
-  list, 
-  onClose 
-}: { 
-  list: any; 
-  onClose: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [showError, setShowError] = useState<string | null>(null);
-  const listUrl = getListUrl(list.slug);
-
-  const handleCopy = async () => {
-    try {
-      await copyToClipboard(listUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      setShowError("Failed to copy URL");
-    }
-  };
-
-  return (
-    <Modal onClose={onClose} title={`Share "${list.name}"`}>
-      <div className="space-y-4">
-        {showError && (
-          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
-            {showError}
-          </div>
-        )}
-        
-        <div>
-          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Share URL</label>
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              value={listUrl}
-              readOnly
-              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-white"
-            />
-            <button
-              onClick={handleCopy}
-              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-            >
-              {copied ? "Copied!" : "Copy"}
-            </button>
-          </div>
-        </div>
-        
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          Permission: <strong className="text-gray-900 dark:text-white">{list.permission}</strong>
-        </p>
-      </div>
-
-      <div className="flex justify-end mt-6">
-        <button
-          onClick={onClose}
-          className="bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-        >
-          Close
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const email = inputRef.current!.value;
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await db.auth.sendMagicCode({ email });
-      onSendEmail(email);
-    } catch (err: any) {
-      setError("Error sending code: " + (err.body?.message || err.message));
-      onSendEmail("");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
-          {error}
-        </div>
-      )}
-      <div>
-        <input
-          ref={inputRef}
-          type="email"
-          required
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-          placeholder="Enter your email"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      >
-        {isLoading ? "Sending..." : "Send Magic Code"}
-      </button>
-    </form>
-  );
-}
-
-function CodeStep({ sentEmail }: { sentEmail: string }) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const code = inputRef.current!.value;
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await db.auth.signInWithMagicCode({ email: sentEmail, code });
-    } catch (err: any) {
-      setError("Error signing in: " + (err.body?.message || err.message));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
-          {error}
-        </div>
-      )}
-      <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-          Enter the code sent to {sentEmail}
-        </p>
-        <input
-          ref={inputRef}
-          type="text"
-          required
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-          placeholder="Enter verification code"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      >
-        {isLoading ? "Signing in..." : "Sign In"}
-      </button>
-    </form>
   );
 }
 
@@ -542,16 +334,16 @@ function CreateListModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   );
 }
 
-function ConfirmDeleteModal({ 
-  title, 
-  message, 
-  onConfirm, 
-  onCancel 
-}: { 
-  title: string; 
-  message: string; 
-  onConfirm: () => void; 
-  onCancel: () => void; 
+function ConfirmDeleteModal({
+  title,
+  message,
+  onConfirm,
+  onCancel
+}: {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
   return (
     <Modal onClose={onCancel} title={title}>
@@ -584,6 +376,106 @@ function ErrorModal({ message, onClose }: { message: string; onClose: () => void
       >
         Close
       </button>
+    </Modal>
+  );
+}
+
+function ProfileModal({ onClose }: { onClose: () => void }) {
+  const { me } = useAccount({ resolve: { root: true } });
+  const [name, setName] = useState(me?.profile?.name || "");
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (me?.profile?.name) {
+      setName(me.profile.name);
+    }
+  }, [me?.profile?.name]);
+
+  const handleSave = () => {
+    if (!me?.profile) {
+      setError("Unable to update profile");
+      return;
+    }
+
+    if (!name.trim()) {
+      setError("Name cannot be empty");
+      return;
+    }
+
+    try {
+      me.profile.name = name.trim();
+      setSaved(true);
+      setError(null);
+      setTimeout(() => {
+        setSaved(false);
+        onClose();
+      }, 1000);
+    } catch (err) {
+      console.error("Failed to update profile:", err);
+      setError("Failed to update profile. Please try again.");
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} title="Profile Settings">
+      <div className="space-y-4">
+        {error && (
+          <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+            {error}
+          </div>
+        )}
+
+        {saved && (
+          <div className="bg-green-100 dark:bg-green-900 border border-green-400 dark:border-green-600 text-green-700 dark:text-green-200 px-4 py-3 rounded">
+            Profile saved successfully!
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+            Display Name
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter your display name"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+          />
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            This name will be shown to other collaborators
+          </p>
+        </div>
+
+        <div className="pt-2">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Account Info</h4>
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400 shrink-0">Account ID:</span>
+              <code className="text-xs text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded break-all select-all">
+                {me?.id || "Loading..."}
+              </code>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex space-x-3 mt-6">
+        <button
+          onClick={handleSave}
+          disabled={!name.trim() || saved}
+          className="flex-1 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saved ? "Saved!" : "Save Changes"}
+        </button>
+        <button
+          onClick={onClose}
+          className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+        >
+          Cancel
+        </button>
+      </div>
     </Modal>
   );
 }

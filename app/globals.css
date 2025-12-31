@@ -17,3 +17,16 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Fix Jazz PassphraseAuthBasicUI textarea text color */
+textarea {
+  color: #171717;
+}
+
+/* Ensure dark mode also has readable text in textareas */
+@media (prefers-color-scheme: dark) {
+  textarea {
+    color: #171717;
+    background-color: #ffffff;
+  }
+}

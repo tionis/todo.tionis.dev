@@ -1,18 +1,10 @@
-export function generateSlug(): string {
-  // Generate a random 8-character slug similar to HedgeDoc
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
+import { ID } from "jazz-tools";
 
-export function getListUrl(slug: string): string {
+export function getListUrl(listId: ID<any>): string {
   if (typeof window !== 'undefined') {
-    return `${window.location.origin}/#/list/${encodeURIComponent(slug)}`;
+    return `${window.location.origin}/#/list/${encodeURIComponent(listId)}`;
   }
-  return `/#/list/${encodeURIComponent(slug)}`;
+  return `/#/list/${encodeURIComponent(listId)}`;
 }
 
 export function copyToClipboard(text: string): Promise<void> {
