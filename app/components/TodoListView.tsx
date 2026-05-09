@@ -25,7 +25,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { db } from '../../lib/db';
 import { copyToClipboard, getListUrl } from "../../lib/utils";
-import { classifyTodoText, normalizeItemText, type ClassificationResult } from "../../lib/classification";
+import { classifyTodoText, getClassifierStatus, normalizeItemText, type ClassificationResult } from "../../lib/classification";
 import { executeTransaction, canUserWrite, canUserView, transferListOwnership } from "../../lib/transactions";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
@@ -72,7 +72,7 @@ function createTodoTransactions(
   explicitSource = "explicit",
 ): CreateTodoResult {
   const maxOrder = Math.max(0, ...todoList.todos.map((todo) => todo.order || 0));
-  const classification = explicitSublistId
+  const classification = explicitSublistId || !todoList.autoSortTodos
     ? null
     : classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications);
   const sublistId = explicitSublistId || classification?.sublistId;
@@ -969,7 +969,7 @@ function GlobalDragWrapper({
       onDragEnd={handleDragEnd}
     >
       <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-        {canWrite && <TodoForm todoList={todoList} />}
+        {canWrite && <TodoForm todoList={todoList} addToast={addToast} />}
         
         {/* Sublists */}
         {sublists.map(sublist => (
@@ -1023,6 +1023,7 @@ function GlobalDragWrapper({
 function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; onClose: () => void; addToast: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [permission, setPermission] = useState(todoList.permission);
   const [hideCompleted, setHideCompleted] = useState(todoList.hideCompleted);
+  const [autoSortTodos, setAutoSortTodos] = useState(!!todoList.autoSortTodos);
   const [name, setName] = useState(todoList.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
@@ -1033,6 +1034,7 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
       db.tx.todoLists[todoList.id].update({
         permission,
         hideCompleted,
+        autoSortTodos,
         name,
         updatedAt: new Date().toISOString()
       })
@@ -1113,6 +1115,13 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
             <span className="text-sm text-gray-700 dark:text-gray-300">Hide completed todos</span>
           </label>
         </div>
+
+        <ClassifierSettingsPanel
+          todoList={todoList}
+          autoSortTodos={autoSortTodos}
+          setAutoSortTodos={setAutoSortTodos}
+          addToast={addToast}
+        />
       </div>
 
       <div className="flex space-x-3 mt-6">
@@ -1235,6 +1244,172 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
         />
       )}
     </Modal>
+  );
+}
+
+function ClassifierSettingsPanel({
+  todoList,
+  autoSortTodos,
+  setAutoSortTodos,
+  addToast,
+}: {
+  todoList: TodoList;
+  autoSortTodos: boolean;
+  setAutoSortTodos: (enabled: boolean) => void;
+  addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+}) {
+  const [testText, setTestText] = useState("");
+  const [backfillError, setBackfillError] = useState<string | null>(null);
+  const status = getClassifierStatus(todoList.sublists, todoList.todos, todoList.todoClassifications);
+  const testResult = testText.trim()
+    ? classifyTodoText(testText, todoList.sublists, todoList.todos, todoList.todoClassifications)
+    : null;
+  const recentSamples = [...todoList.todoClassifications]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 6);
+
+  const getSublistName = (sublistId?: string) => {
+    if (!sublistId) return "No category";
+    return todoList.sublists.find((sublist) => sublist.id === sublistId)?.name || "Deleted category";
+  };
+
+  const captureCurrentTodos = async () => {
+    const existingKeys = new Set(
+      todoList.todoClassifications
+        .filter((sample) => sample.sublist?.id)
+        .map((sample) => `${sample.normalizedText}:${sample.sublist!.id}`)
+    );
+    const transactions = todoList.todos.flatMap((todo) => {
+      if (!todo.sublist?.id) return [];
+      const key = `${normalizeItemText(todo.text)}:${todo.sublist.id}`;
+      if (existingKeys.has(key)) return [];
+      existingKeys.add(key);
+      return [createClassificationTransaction(todoList.id, todo.sublist.id, todo.text, "backfill")];
+    });
+
+    if (transactions.length === 0) {
+      addToast("No new categorized todos to capture", "info");
+      return;
+    }
+
+    try {
+      await db.transact(transactions);
+      setBackfillError(null);
+      addToast(`Captured ${transactions.length} classifier example${transactions.length !== 1 ? 's' : ''}`, "success");
+    } catch (err) {
+      console.error("Failed to capture classifier examples:", err);
+      setBackfillError("Failed to capture current categorized todos.");
+    }
+  };
+
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white">Classifier</h4>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+            {status.ready ? "Ready" : status.missingReason}
+          </p>
+        </div>
+        <span className={`text-xs px-2 py-1 rounded ${status.ready ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}>
+          {status.totalExamples}/{status.requiredExamples}
+        </span>
+      </div>
+
+      <label className="flex items-center space-x-2 mt-4">
+        <input
+          type="checkbox"
+          checked={autoSortTodos}
+          onChange={(e) => setAutoSortTodos(e.target.checked)}
+          className="rounded"
+        />
+        <span className="text-sm text-gray-700 dark:text-gray-300">Auto-sort new uncategorized todos</span>
+      </label>
+
+      <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
+        <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+          <div className="text-gray-500 dark:text-gray-400">Categories</div>
+          <div className="text-lg text-gray-900 dark:text-white">{status.categoryCount}/{status.requiredCategories}</div>
+        </div>
+        <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+          <div className="text-gray-500 dark:text-gray-400">Recorded samples</div>
+          <div className="text-lg text-gray-900 dark:text-white">{todoList.todoClassifications.length}</div>
+        </div>
+      </div>
+
+      {status.categoryCounts.length > 0 && (
+        <div className="mt-4">
+          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Training examples by category</div>
+          <div className="space-y-1">
+            {status.categoryCounts.map((category) => (
+              <div key={category.sublistId} className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
+                <span>{getSublistName(category.sublistId)}</span>
+                <span>{category.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Object.keys(status.sourceCounts).length > 0 && (
+        <div className="mt-4">
+          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Recorded sample sources</div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(status.sourceCounts).map(([source, count]) => (
+              <span key={source} className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                {source}: {count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4">
+        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Try item text</label>
+        <input
+          type="text"
+          value={testText}
+          onChange={(e) => setTestText(e.target.value)}
+          placeholder="e.g. oat milk"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+        />
+        {testText.trim() && (
+          <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+            {testResult
+              ? `${getSublistName(testResult.sublistId)} (${Math.round(testResult.confidence * 100)}%, ${testResult.reason})`
+              : "No confident category"}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-col sm:flex-row gap-2">
+        <button
+          type="button"
+          onClick={captureCurrentTodos}
+          className="text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-3 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+        >
+          Capture Current Todos
+        </button>
+      </div>
+
+      {backfillError && (
+        <div className="mt-2 text-xs text-red-600 dark:text-red-400">{backfillError}</div>
+      )}
+
+      {recentSamples.length > 0 && (
+        <div className="mt-4">
+          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Recent recorded samples</div>
+          <div className="divide-y divide-gray-200 dark:divide-gray-600 border border-gray-200 dark:border-gray-600 rounded">
+            {recentSamples.map((sample) => (
+              <div key={sample.id} className="flex justify-between gap-3 px-3 py-2 text-xs">
+                <span className="text-gray-900 dark:text-white truncate">{sample.text}</span>
+                <span className="text-gray-500 dark:text-gray-400 shrink-0">{getSublistName(sample.sublist?.id)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1834,7 +2009,13 @@ function OnlineUsersTooltip({
   );
 }
 
-function TodoForm({ todoList }: { todoList: TodoList }) {
+function TodoForm({
+  todoList,
+  addToast,
+}: {
+  todoList: TodoList;
+  addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+}) {
   const [selectedSublist, setSelectedSublist] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
@@ -1844,7 +2025,7 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
     const text = input.value.trim();
     if (!text) return;
 
-    const { transactions } = createTodoTransactions(
+    const { transactions, classification } = createTodoTransactions(
       todoList,
       text,
       selectedSublist || undefined,
@@ -1852,6 +2033,12 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
     );
 
     db.transact(transactions).then(() => {
+      if (classification) {
+        const sublist = todoList.sublists.find((item) => item.id === classification.sublistId);
+        if (sublist) {
+          addToast(`Auto-sorted to ${sublist.name}`, "info");
+        }
+      }
       input.value = "";
       setError(null);
     }).catch(err => {

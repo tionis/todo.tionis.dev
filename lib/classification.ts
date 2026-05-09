@@ -21,6 +21,22 @@ export interface ClassificationResult {
   reason: "exact" | "tokens";
 }
 
+export interface ClassifierCategoryStatus {
+  sublistId: string;
+  count: number;
+}
+
+export interface ClassifierStatus {
+  ready: boolean;
+  totalExamples: number;
+  categoryCount: number;
+  requiredExamples: number;
+  requiredCategories: number;
+  sourceCounts: Record<string, number>;
+  categoryCounts: ClassifierCategoryStatus[];
+  missingReason: string | null;
+}
+
 interface TrainingExample {
   normalizedText: string;
   tokens: string[];
@@ -115,6 +131,42 @@ export function classifyTodoText(
   }
 
   return classifyTokens(tokens, examples);
+}
+
+export function getClassifierStatus(
+  sublists: ClassificationSublist[],
+  todos: ClassificationTodo[],
+  samples: ClassificationSample[] = [],
+): ClassifierStatus {
+  const knownSublistIds = new Set(sublists.map((sublist) => sublist.id));
+  const examples = buildTrainingExamples(todos, samples, knownSublistIds);
+  const categories = new Set(examples.map((example) => example.sublistId));
+  const sourceCounts = samples.reduce<Record<string, number>>((counts, sample) => {
+    const source = sample.source || "unknown";
+    counts[source] = (counts[source] || 0) + 1;
+    return counts;
+  }, {});
+  const categoryCountMap = examples.reduce<Map<string, number>>((counts, example) => {
+    counts.set(example.sublistId, (counts.get(example.sublistId) || 0) + 1);
+    return counts;
+  }, new Map());
+  const ready = examples.length >= MIN_TOTAL_EXAMPLES && categories.size >= MIN_CATEGORIES;
+  const missingReason = ready
+    ? null
+    : `Needs at least ${MIN_TOTAL_EXAMPLES} categorized examples across ${MIN_CATEGORIES} categories.`;
+
+  return {
+    ready,
+    totalExamples: examples.length,
+    categoryCount: categories.size,
+    requiredExamples: MIN_TOTAL_EXAMPLES,
+    requiredCategories: MIN_CATEGORIES,
+    sourceCounts,
+    categoryCounts: [...categoryCountMap.entries()]
+      .map(([sublistId, count]) => ({ sublistId, count }))
+      .sort((a, b) => b.count - a.count),
+    missingReason,
+  };
 }
 
 function buildTrainingExamples(

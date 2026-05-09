@@ -33,6 +33,7 @@ const _schema = i.schema({
       order: i.number().indexed(),
     }),
     todoLists: i.entity({
+      autoSortTodos: i.boolean().optional(),
       createdAt: i.date().indexed(),
       hideCompleted: i.boolean().optional(),
       name: i.string(),

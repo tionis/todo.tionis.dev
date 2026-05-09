@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "debug": "node debug-cli.js",
     "generate-icons": "npm run generate-icons:main && npm run generate-icons:apple",
     "generate-icons:main": "for size in 72 96 128 144 152 192 384 512; do convert public/icon.svg -resize ${size}x${size} public/icon-${size}.png; done",
@@ -26,11 +26,16 @@
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^22",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.2"
   }
 }

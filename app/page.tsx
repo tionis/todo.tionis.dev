@@ -146,6 +146,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           slug,
           permission: "private-write",
           hideCompleted: false,
+          autoSortTodos: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         })
