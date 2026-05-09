@@ -1086,6 +1086,7 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
   const [name, setName] = useState(todoList.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
+  const [showClassifierModal, setShowClassifierModal] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
 
   const handleSave = () => {
@@ -1175,11 +1176,11 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
           </label>
         </div>
 
-        <ClassifierSettingsPanel
+        <ClassifierSettingsRow
           todoList={todoList}
           autoSortTodos={autoSortTodos}
           setAutoSortTodos={setAutoSortTodos}
-          addToast={addToast}
+          onOpenDetails={() => setShowClassifierModal(true)}
         />
       </div>
 
@@ -1302,19 +1303,74 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
           }}
         />
       )}
+
+      {showClassifierModal && (
+        <ClassifierDetailsModal
+          todoList={todoList}
+          onClose={() => setShowClassifierModal(false)}
+          addToast={addToast}
+        />
+      )}
     </Modal>
   );
 }
 
-function ClassifierSettingsPanel({
+function ClassifierSettingsRow({
   todoList,
   autoSortTodos,
   setAutoSortTodos,
-  addToast,
+  onOpenDetails,
 }: {
   todoList: TodoList;
   autoSortTodos: boolean;
   setAutoSortTodos: (enabled: boolean) => void;
+  onOpenDetails: () => void;
+}) {
+  const status = getClassifierStatus(todoList.sublists, todoList.todos, todoList.todoClassifications);
+
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-600 pt-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white">Classifier</h4>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 truncate">
+            {status.ready ? "Ready" : status.missingReason}
+          </p>
+        </div>
+        <span className={`text-xs px-2 py-1 rounded shrink-0 ${status.ready ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}>
+          {status.totalExamples}/{status.requiredExamples}
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <label className="flex items-center space-x-2 min-w-0">
+          <input
+            type="checkbox"
+            checked={autoSortTodos}
+            onChange={(e) => setAutoSortTodos(e.target.checked)}
+            className="rounded"
+          />
+          <span className="text-sm text-gray-700 dark:text-gray-300">Auto-sort new uncategorized todos</span>
+        </label>
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          className="text-sm px-3 py-2 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 shrink-0"
+        >
+          Details
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ClassifierDetailsModal({
+  todoList,
+  onClose,
+  addToast,
+}: {
+  todoList: TodoList;
+  onClose: () => void;
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [testText, setTestText] = useState("");
@@ -1362,113 +1418,120 @@ function ClassifierSettingsPanel({
   };
 
   return (
-    <div className="border-t border-gray-200 dark:border-gray-600 pt-4">
-      <div className="flex items-start justify-between gap-4">
+    <Modal onClose={onClose} title="Classifier Details" maxWidth="lg">
+      <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-gray-900 dark:text-white">
+              {status.ready ? "Ready to classify" : "Not enough training data"}
+            </p>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+              {status.ready ? "New uncategorized todos can be sorted when auto-sort is enabled." : status.missingReason}
+            </p>
+          </div>
+          <span className={`text-xs px-2 py-1 rounded shrink-0 ${status.ready ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}>
+            {status.totalExamples}/{status.requiredExamples}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <div className="text-gray-500 dark:text-gray-400">Examples</div>
+            <div className="text-lg text-gray-900 dark:text-white">{status.totalExamples}</div>
+          </div>
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <div className="text-gray-500 dark:text-gray-400">Categories</div>
+            <div className="text-lg text-gray-900 dark:text-white">{status.categoryCount}/{status.requiredCategories}</div>
+          </div>
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <div className="text-gray-500 dark:text-gray-400">Recorded</div>
+            <div className="text-lg text-gray-900 dark:text-white">{todoList.todoClassifications.length}</div>
+          </div>
+        </div>
+
         <div>
-          <h4 className="text-sm font-medium text-gray-900 dark:text-white">Classifier</h4>
-          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-            {status.ready ? "Ready" : status.missingReason}
-          </p>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Try item text</label>
+          <input
+            type="text"
+            value={testText}
+            onChange={(e) => setTestText(e.target.value)}
+            placeholder="e.g. oat milk"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+          />
+          {testText.trim() && (
+            <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+              {testResult
+                ? `${getSublistName(testResult.sublistId)} (${Math.round(testResult.confidence * 100)}%, ${testResult.reason})`
+                : "No confident category"}
+            </div>
+          )}
         </div>
-        <span className={`text-xs px-2 py-1 rounded ${status.ready ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}>
-          {status.totalExamples}/{status.requiredExamples}
-        </span>
-      </div>
 
-      <label className="flex items-center space-x-2 mt-4">
-        <input
-          type="checkbox"
-          checked={autoSortTodos}
-          onChange={(e) => setAutoSortTodos(e.target.checked)}
-          className="rounded"
-        />
-        <span className="text-sm text-gray-700 dark:text-gray-300">Auto-sort new uncategorized todos</span>
-      </label>
-
-      <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
-        <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
-          <div className="text-gray-500 dark:text-gray-400">Categories</div>
-          <div className="text-lg text-gray-900 dark:text-white">{status.categoryCount}/{status.requiredCategories}</div>
-        </div>
-        <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
-          <div className="text-gray-500 dark:text-gray-400">Recorded samples</div>
-          <div className="text-lg text-gray-900 dark:text-white">{todoList.todoClassifications.length}</div>
-        </div>
-      </div>
-
-      {status.categoryCounts.length > 0 && (
-        <div className="mt-4">
-          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Training examples by category</div>
-          <div className="space-y-1">
-            {status.categoryCounts.map((category) => (
-              <div key={category.sublistId} className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
-                <span>{getSublistName(category.sublistId)}</span>
-                <span>{category.count}</span>
-              </div>
-            ))}
+        {status.categoryCounts.length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Examples by category</div>
+            <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+              {status.categoryCounts.map((category) => (
+                <div key={category.sublistId} className="flex justify-between gap-3 text-xs text-gray-600 dark:text-gray-400">
+                  <span className="truncate">{getSublistName(category.sublistId)}</span>
+                  <span className="shrink-0">{category.count}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {Object.keys(status.sourceCounts).length > 0 && (
-        <div className="mt-4">
-          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Recorded sample sources</div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(status.sourceCounts).map(([source, count]) => (
-              <span key={source} className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                {source}: {count}
-              </span>
-            ))}
+        {Object.keys(status.sourceCounts).length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Sources</div>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(status.sourceCounts).map(([source, count]) => (
+                <span key={source} className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                  {source}: {count}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="mt-4">
-        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Try item text</label>
-        <input
-          type="text"
-          value={testText}
-          onChange={(e) => setTestText(e.target.value)}
-          placeholder="e.g. oat milk"
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-        />
-        {testText.trim() && (
-          <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-            {testResult
-              ? `${getSublistName(testResult.sublistId)} (${Math.round(testResult.confidence * 100)}%, ${testResult.reason})`
-              : "No confident category"}
+        <div>
+          <button
+            type="button"
+            onClick={captureCurrentTodos}
+            className="text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-3 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+          >
+            Capture Current Todos
+          </button>
+        </div>
+
+        {backfillError && (
+          <div className="text-xs text-red-600 dark:text-red-400">{backfillError}</div>
+        )}
+
+        {recentSamples.length > 0 && (
+          <div>
+            <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Recent samples</div>
+            <div className="max-h-48 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-600 border border-gray-200 dark:border-gray-600 rounded">
+              {recentSamples.map((sample) => (
+                <div key={sample.id} className="flex justify-between gap-3 px-3 py-2 text-xs">
+                  <span className="text-gray-900 dark:text-white truncate">{sample.text}</span>
+                  <span className="text-gray-500 dark:text-gray-400 shrink-0">{getSublistName(sample.sublist?.id)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
-      <div className="mt-4 flex flex-col sm:flex-row gap-2">
+      <div className="flex justify-end mt-6">
         <button
-          type="button"
-          onClick={captureCurrentTodos}
-          className="text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-3 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+          onClick={onClose}
+          className="bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
         >
-          Capture Current Todos
+          Close
         </button>
       </div>
-
-      {backfillError && (
-        <div className="mt-2 text-xs text-red-600 dark:text-red-400">{backfillError}</div>
-      )}
-
-      {recentSamples.length > 0 && (
-        <div className="mt-4">
-          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Recent recorded samples</div>
-          <div className="divide-y divide-gray-200 dark:divide-gray-600 border border-gray-200 dark:border-gray-600 rounded">
-            {recentSamples.map((sample) => (
-              <div key={sample.id} className="flex justify-between gap-3 px-3 py-2 text-xs">
-                <span className="text-gray-900 dark:text-white truncate">{sample.text}</span>
-                <span className="text-gray-500 dark:text-gray-400 shrink-0">{getSublistName(sample.sublist?.id)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+    </Modal>
   );
 }
 
