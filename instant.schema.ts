@@ -21,6 +21,12 @@ const _schema = i.schema({
       addedAt: i.date().indexed(),
       role: i.string(),
     }),
+    todoClassifications: i.entity({
+      createdAt: i.date().indexed(),
+      normalizedText: i.string().indexed(),
+      source: i.string().indexed(),
+      text: i.string(),
+    }),
     sublists: i.entity({
       createdAt: i.date().indexed(),
       name: i.string(),
@@ -93,6 +99,32 @@ const _schema = i.schema({
         on: "$users",
         has: "many",
         label: "memberships",
+      },
+    },
+    todoClassificationsList: {
+      forward: {
+        on: "todoClassifications",
+        has: "one",
+        label: "list",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "todoLists",
+        has: "many",
+        label: "todoClassifications",
+      },
+    },
+    todoClassificationsSublist: {
+      forward: {
+        on: "todoClassifications",
+        has: "one",
+        label: "sublist",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "sublists",
+        has: "many",
+        label: "todoClassifications",
       },
     },
     sublistsList: {

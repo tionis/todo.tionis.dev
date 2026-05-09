@@ -33,9 +33,19 @@ const rules = {
   todos: {
     allow: {
       view: "data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
-      create: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
-      update: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
-      delete: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
+      create: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && data.ref('list.permission')[0] == 'private-write' && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
+      update: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && data.ref('list.permission')[0] == 'private-write' && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
+      delete: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && data.ref('list.permission')[0] == 'private-write' && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
+    },
+  },
+
+  // Classification history inherits permissions from the parent list
+  todoClassifications: {
+    allow: {
+      view: "data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write' || (auth.id != null && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id')))",
+      create: "data.ref('list.permission')[0] == 'public-write' || (auth.id != null && data.ref('list.permission')[0] == 'private-write' && (auth.id in data.ref('list.owner.id') || auth.id in data.ref('list.members.user.id'))) || (data.ref('list.permission')[0] == 'owner' && auth.id in data.ref('list.owner.id'))",
+      update: "false",
+      delete: "auth.id != null && auth.id in data.ref('list.owner.id')",
     },
   },
   

@@ -25,6 +25,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { db } from '../../lib/db';
 import { copyToClipboard, getListUrl } from "../../lib/utils";
+import { classifyTodoText, normalizeItemText, type ClassificationResult } from "../../lib/classification";
 import { executeTransaction, canUserWrite, canUserView, transferListOwnership } from "../../lib/transactions";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
@@ -37,10 +38,67 @@ type TodoList = InstaQLEntity<AppSchema, "todoLists", {
   todos: { sublist?: {} }; 
   sublists: { todos: {} }; 
   members: { user: {} };
-  invitations: { inviter: {} }
+  invitations: { inviter: {} };
+  todoClassifications: { sublist?: {} };
 }>;
 type Todo = InstaQLEntity<AppSchema, "todos", { sublist?: {} }>;
 type Sublist = InstaQLEntity<AppSchema, "sublists", { todos: {} }>;
+
+interface CreateTodoResult {
+  transactions: any[];
+  classification: ClassificationResult | null;
+}
+
+function createClassificationTransaction(
+  listId: string,
+  sublistId: string,
+  text: string,
+  source: string,
+) {
+  return db.tx.todoClassifications[id()]
+    .update({
+      text,
+      normalizedText: normalizeItemText(text),
+      source,
+      createdAt: new Date().toISOString(),
+    })
+    .link({ list: listId, sublist: sublistId });
+}
+
+function createTodoTransactions(
+  todoList: TodoList,
+  text: string,
+  explicitSublistId?: string,
+  explicitSource = "explicit",
+): CreateTodoResult {
+  const maxOrder = Math.max(0, ...todoList.todos.map((todo) => todo.order || 0));
+  const classification = explicitSublistId
+    ? null
+    : classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications);
+  const sublistId = explicitSublistId || classification?.sublistId;
+  const source = explicitSublistId ? explicitSource : "auto";
+
+  let todoTx = db.tx.todos[id()]
+    .update({
+      text,
+      done: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      order: maxOrder + 1,
+    })
+    .link({ list: todoList.id });
+
+  if (sublistId) {
+    todoTx = todoTx.link({ sublist: sublistId });
+  }
+
+  const transactions: any[] = [todoTx];
+  if (sublistId && source !== "auto") {
+    transactions.push(createClassificationTransaction(todoList.id, sublistId, text, source));
+  }
+
+  return { transactions, classification };
+}
 
 interface TodoListViewProps {
   slug: string;
@@ -59,7 +117,8 @@ export default function TodoListView({ slug }: TodoListViewProps) {
       },
       sublists: { todos: {} },
       members: { user: {} },
-      invitations: { inviter: {} }
+      invitations: { inviter: {} },
+      todoClassifications: { sublist: {} }
     } 
   });
   const { addToast } = useToast();
@@ -396,7 +455,7 @@ function TodoListApp({
 
   const completedUncategorizedTodos = todosWithoutSublist.filter(todo => todo.done);
 
-  const sublists = todoList.sublists.sort((a, b) => a.order - b.order);
+  const sublists = [...todoList.sublists].sort((a, b) => a.order - b.order);
 
   const deleteCompleted = (completedTodos: Todo[]) => {
     if (completedTodos.length === 0) return;
@@ -836,7 +895,12 @@ function GlobalDragWrapper({
           updateTx = updateTx.link({ sublist: targetSublistId });
         }
         
-        await db.transact(updateTx);
+        const transactions: any[] = [updateTx];
+        if (targetSublistId !== 'uncategorized') {
+          transactions.push(createClassificationTransaction(todoList.id, targetSublistId, activeTodo.text, "manual-move"));
+        }
+
+        await db.transact(transactions);
         return;
       }
       
@@ -859,7 +923,12 @@ function GlobalDragWrapper({
           updateTx = updateTx.unlink({ sublist: currentSublistId });
         }
         
-        await db.transact(updateTx);
+        const transactions: any[] = [updateTx];
+        if (targetSublistId) {
+          transactions.push(createClassificationTransaction(todoList.id, targetSublistId, activeTodo.text, "manual-move"));
+        }
+
+        await db.transact(transactions);
         return;
       }
       
@@ -1775,20 +1844,14 @@ function TodoForm({ todoList }: { todoList: TodoList }) {
     const text = input.value.trim();
     if (!text) return;
 
-    const maxOrder = Math.max(0, ...todoList.todos.map(t => t.order || 0));
-    let todoTx = db.tx.todos[id()].update({
+    const { transactions } = createTodoTransactions(
+      todoList,
       text,
-      done: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      order: maxOrder + 1
-    }).link({ list: todoList.id });
+      selectedSublist || undefined,
+      "explicit-create",
+    );
 
-    if (selectedSublist) {
-      todoTx = todoTx.link({ sublist: selectedSublist });
-    }
-
-    db.transact(todoTx).then(() => {
+    db.transact(transactions).then(() => {
       input.value = "";
       setError(null);
     }).catch(err => {
@@ -2324,25 +2387,14 @@ function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublist?: Sub
     e.preventDefault();
     if (!text.trim()) return;
 
-    const maxOrder = Math.max(0, ...todoList.todos.map(t => t.order || 0));
-    
-    // Create todo with proper linking
-    let todoTx = db.tx.todos[id()]
-      .update({
-        text: text.trim(),
-        done: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        order: maxOrder + 1
-      })
-      .link({ list: todoList.id });
+    const { transactions } = createTodoTransactions(
+      todoList,
+      text.trim(),
+      sublist?.id,
+      "quick-add",
+    );
 
-    // Only link to sublist if it exists and has a valid ID
-    if (sublist && sublist.id) {
-      todoTx = todoTx.link({ sublist: sublist.id });
-    }
-
-    db.transact(todoTx).then(() => {
+    db.transact(transactions).then(() => {
       setText("");
       setError(null);
     }).catch(err => {

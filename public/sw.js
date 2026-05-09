@@ -130,37 +130,17 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname.includes('instantdb.com') || url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const responseClone = response.clone();
-            caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone).catch((error) => {
-                console.warn('Failed to cache API response:', error);
-              });
-            }).catch((error) => {
-              console.warn('Failed to open cache for API responses:', error);
-            });
-          }
-          return response;
-        })
         .catch(() => {
-          // For API failures, try cache first, then return offline response
-          return caches.match(request).then((cachedResponse) => {
-            if (cachedResponse) {
-              return cachedResponse;
+          return new Response(
+            JSON.stringify({
+              error: 'offline',
+              message: 'This request requires an internet connection'
+            }),
+            {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' }
             }
-            // Return a meaningful offline response for API calls
-            return new Response(
-              JSON.stringify({ 
-                error: 'offline', 
-                message: 'This request requires an internet connection' 
-              }), 
-              { 
-                status: 503, 
-                headers: { 'Content-Type': 'application/json' } 
-              }
-            );
-          });
+          );
         })
     );
     return;
