@@ -78,6 +78,16 @@ const rules = {
       delete: "(auth.id != null && auth.id in data.ref('list.owner.id')) || (auth.id != null && auth.id == data.ref('user.id')[0])",
     },
   },
+
+  // Pins let users keep public lists on their dashboard without becoming members
+  pinnedLists: {
+    allow: {
+      view: "auth.id != null && auth.id == data.ref('user.id')[0]",
+      create: "auth.id != null && auth.id == data.ref('user.id')[0] && (data.ref('list.permission')[0] == 'public-read' || data.ref('list.permission')[0] == 'public-write')",
+      update: "false",
+      delete: "auth.id != null && auth.id == data.ref('user.id')[0]",
+    },
+  },
 } satisfies InstantRules;
 
 export default rules;

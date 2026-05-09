@@ -21,6 +21,9 @@ const _schema = i.schema({
       addedAt: i.date().indexed(),
       role: i.string(),
     }),
+    pinnedLists: i.entity({
+      createdAt: i.date().indexed(),
+    }),
     todoClassifications: i.entity({
       createdAt: i.date().indexed(),
       normalizedText: i.string().indexed(),
@@ -100,6 +103,32 @@ const _schema = i.schema({
         on: "$users",
         has: "many",
         label: "memberships",
+      },
+    },
+    pinnedListsList: {
+      forward: {
+        on: "pinnedLists",
+        has: "one",
+        label: "list",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "todoLists",
+        has: "many",
+        label: "pins",
+      },
+    },
+    pinnedListsUser: {
+      forward: {
+        on: "pinnedLists",
+        has: "one",
+        label: "user",
+        onDelete: "cascade",
+      },
+      reverse: {
+        on: "$users",
+        has: "many",
+        label: "pinnedLists",
       },
     },
     todoClassificationsList: {

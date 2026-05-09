@@ -119,6 +119,21 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }) as unknown as { isLoading: boolean; error: Error | null; data: { todoLists: any[] } | null };
 
+  const { isLoading: pinsLoading, error: pinsError, data: pinsData } = db.useQuery({
+    pinnedLists: {
+      $: {
+        where: { "user.id": user.id },
+        order: { createdAt: "desc" }
+      },
+      list: {
+        owner: {},
+        todos: {},
+        members: { user: {} }
+      },
+      user: {}
+    }
+  }) as unknown as { isLoading: boolean; error: Error | null; data: { pinnedLists: any[] } | null };
+
   const userEmail = user.email?.toLowerCase();
   const { isLoading: invitationsLoading, error: invitationsError, data: invitationsData } = db.useQuery(
     userEmail ? {
@@ -128,13 +143,21 @@ function AuthenticatedApp({ user }: { user: User }) {
     } : null
   ) as unknown as { isLoading: boolean; error: Error | null; data: { invitations: any[] } | null };
 
-  const isLoading = listsLoading || invitationsLoading;
-  const error = listsError || invitationsError;
+  const isLoading = listsLoading || pinsLoading || invitationsLoading;
+  const error = listsError || pinsError || invitationsError;
 
   if (isLoading) return <LoadingSpinner message="Loading your lists..." />;
   if (error) return <ErrorDisplay message={error.message} />;
 
   const pendingInvitationsCount = invitationsData?.invitations?.length || 0;
+  const ownAndMemberLists = listsData?.todoLists || [];
+  const ownAndMemberListIds = new Set(ownAndMemberLists.map((list) => list.id));
+  const pinnedLists = (pinsData?.pinnedLists || []).flatMap((pin) => {
+    const list = Array.isArray(pin.list) ? pin.list[0] : pin.list;
+    if (!list || ownAndMemberListIds.has(list.id)) return [];
+    return [{ ...list, pinId: pin.id, pinnedAt: pin.createdAt }];
+  });
+  const dashboardLists = [...ownAndMemberLists, ...pinnedLists];
 
   const createNewList = async (listName: string) => {
     const slug = generateSlug();
@@ -208,7 +231,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         </div>
 
-        {!listsData?.todoLists || listsData.todoLists.length === 0 ? (
+        {dashboardLists.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 mb-4">You don't have any todo lists yet.</p>
             <button
@@ -220,12 +243,21 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {listsData.todoLists.map(list => (
+            {dashboardLists.map(list => (
               <TodoListCard 
                 key={list.id} 
                 list={list} 
                 user={user} 
                 onDelete={(list) => setShowDeleteModal({show: true, list})}
+                onUnpin={async (pinId) => {
+                  const success = await executeTransaction(
+                    db.tx.pinnedLists[pinId].delete(),
+                    "Failed to unpin list"
+                  );
+                  if (!success) {
+                    setShowErrorModal({show: true, message: "Failed to unpin list. Please try again."});
+                  }
+                }}
               />
             ))}
           </div>
@@ -267,16 +299,19 @@ function AuthenticatedApp({ user }: { user: User }) {
 function TodoListCard({ 
   list, 
   user,
-  onDelete 
+  onDelete,
+  onUnpin
 }: { 
   list: any; 
   user: User;
   onDelete: (list: any) => void;
+  onUnpin: (pinId: string) => void;
 }) {
   const router = useRouter();
   const [showShareModal, setShowShareModal] = useState(false);
   
   const isOwner = list.owner && list.owner.id === user.id;
+  const isPinned = !!list.pinId;
   const totalTodos = list.todos.length;
   const completedTodos = list.todos.filter((todo: any) => todo.done).length;
   const remainingTodos = totalTodos - completedTodos;
@@ -302,7 +337,16 @@ function TodoListCard({
           >
             🔗
           </button>
-          {isOwner && (
+          {isPinned && (
+            <button
+              onClick={() => onUnpin(list.pinId)}
+              className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm"
+              title="Unpin"
+            >
+              Unpin
+            </button>
+          )}
+          {isOwner && !isPinned && (
             <button
               onClick={deleteList}
               className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm"
@@ -318,7 +362,7 @@ function TodoListCard({
         <p>{remainingTodos} remaining, {completedTodos} completed</p>
         <p>Permission: {list.permission}</p>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          {isOwner ? "You own this list" : "You're a member"}
+          {isPinned ? "Pinned public list" : isOwner ? "You own this list" : "You're a member"}
         </p>
       </div>
 

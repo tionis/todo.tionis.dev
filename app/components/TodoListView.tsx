@@ -39,6 +39,7 @@ type TodoList = InstaQLEntity<AppSchema, "todoLists", {
   sublists: { todos: {} }; 
   members: { user: {} };
   invitations: { inviter: {} };
+  pins: { user: {} };
   todoClassifications: { sublist?: {} };
 }>;
 type Todo = InstaQLEntity<AppSchema, "todos", { sublist?: {} }>;
@@ -118,6 +119,7 @@ export default function TodoListView({ slug }: TodoListViewProps) {
       sublists: { todos: {} },
       members: { user: {} },
       invitations: { inviter: {} },
+      pins: { user: {} },
       todoClassifications: { sublist: {} }
     } 
   });
@@ -231,8 +233,10 @@ export default function TodoListView({ slug }: TodoListViewProps) {
 
   // Check permissions using utility functions
   const isOwner = user && todoList.owner && user.id === todoList.owner.id;
+  const isMember = !!(user && todoList.members?.some((member) => member.user?.id === user.id));
   const canRead = canUserView(user, todoList, todoList.permission);
   const canWrite = canUserWrite(user, todoList, todoList.permission);
+  const currentUserPin = user ? todoList.pins?.find((pin) => pin.user?.id === user.id) : undefined;
 
   if (!canRead) {
     if (!user) {
@@ -246,6 +250,8 @@ export default function TodoListView({ slug }: TodoListViewProps) {
       todoList={todoList}
       user={user ?? null}
       isOwner={!!isOwner}
+      isMember={isMember}
+      currentUserPinId={currentUserPin?.id}
       canWrite={!!canWrite}
       autoAcceptStatus={autoAcceptStatus}
       toggleTodo={toggleTodo}
@@ -385,6 +391,8 @@ function TodoListApp({
   todoList, 
   user, 
   isOwner, 
+  isMember,
+  currentUserPinId,
   canWrite,
   autoAcceptStatus,
   toggleTodo,
@@ -394,6 +402,8 @@ function TodoListApp({
   todoList: TodoList; 
   user: User | null; 
   isOwner: boolean; 
+  isMember: boolean;
+  currentUserPinId?: string;
   canWrite: boolean;
   autoAcceptStatus: {
     accepting: boolean;
@@ -431,7 +441,10 @@ function TodoListApp({
   const [editingTitle, setEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(todoList.name);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [pinning, setPinning] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const isPublicList = todoList.permission === 'public-read' || todoList.permission === 'public-write';
+  const canPinList = !!user && isPublicList && !isOwner && !isMember;
   
   // Close mobile menu when clicking outside
   useEffect(() => {
@@ -512,6 +525,30 @@ function TodoListApp({
     }
   };
 
+  const togglePin = async () => {
+    if (!user || !canPinList || pinning) return;
+    setPinning(true);
+
+    try {
+      if (currentUserPinId) {
+        await db.transact(db.tx.pinnedLists[currentUserPinId].delete());
+        addToast("List unpinned", "success");
+      } else {
+        await db.transact(
+          db.tx.pinnedLists[id()]
+            .update({ createdAt: new Date().toISOString() })
+            .link({ user: user.id, list: todoList.id })
+        );
+        addToast("List pinned to your dashboard", "success");
+      }
+    } catch (err) {
+      console.error("Failed to update pinned list:", err);
+      addToast("Failed to update pinned list. Please try again.", "error");
+    } finally {
+      setPinning(false);
+    }
+  };
+
   return (
     <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
       <div className="max-w-4xl mx-auto">
@@ -569,6 +606,15 @@ function TodoListApp({
           <div className="relative">
             {/* Desktop buttons (hidden on mobile) */}
             <div className="hidden md:flex gap-2">
+              {canPinList && (
+                <button
+                  onClick={togglePin}
+                  disabled={pinning}
+                  className="px-3 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                  {currentUserPinId ? "Unpin" : "Pin"}
+                </button>
+              )}
               <button
                 onClick={() => setShowShareModal(true)}
                 className="px-3 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
@@ -628,6 +674,18 @@ function TodoListApp({
                       Settings
                     </button>
                   )}
+                  {canPinList && (
+                    <button
+                      onClick={() => {
+                        togglePin();
+                        setShowMobileMenu(false);
+                      }}
+                      disabled={pinning}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                    >
+                      {currentUserPinId ? "Unpin" : "Pin"}
+                    </button>
+                  )}
                   {user && (
                     <button
                       onClick={() => {
@@ -678,6 +736,7 @@ function TodoListApp({
             <div className="flex items-center space-x-4">
               <OnlineUsersTooltip currentUser={user} peers={peers} numUsers={numUsers} myPresence={myPresence}/>
               <span>Permission: {todoList.permission}</span>
+              {currentUserPinId && <span>Pinned</span>}
             </div>
           </div>
 
