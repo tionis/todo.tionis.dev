@@ -1,264 +1,177 @@
-# Smart Todos - LLM Project Instructions
+# Smart Todos - Agent Notes
 
-This is a modern, collaborative todo list application built with Next.js 15 and InstantDB, featuring real-time collaboration, offline support, and PWA capabilities.
+This is a collaborative grocery-oriented todo list app built with Next.js, React,
+InstantDB, and Tailwind. It is configured as a static export and uses InstantDB
+for auth, realtime sync, permissions, and offline-capable client data.
 
-## Project Overview
+## Current Stack
 
-**Technology Stack:**
-- Next.js 15 (React 19) with TypeScript
-- InstantDB (real-time database with optimistic updates)
-- Tailwind CSS 4 for styling
-- PWA support with service worker
+- Next.js `16.2.6`, React `19`, TypeScript
+- Tailwind CSS `4`
+- InstantDB React/Admin SDKs
+- ESLint flat config via `eslint.config.mjs`
+- Static export in `next.config.ts` with `output: "export"` and `distDir: "out"`
+- PWA assets and service worker under `public/`
 
-**App ID:** `3629fe62-7453-4610-9a5a-1143a87bcce1`
+Instant app id: `3629fe62-7453-4610-9a5a-1143a87bcce1`
 
-## Core Features
+## Local Commands
 
-- **Real-time Collaboration**: Multiple users can edit the same todo list simultaneously
-- **Sublists/Categories**: Organize todos with hierarchical sublists
-- **Flexible Permissions**: Public, private, or members-only lists with role-based access
-- **Invitation System**: Email-based invitations with pending/accepted status tracking
-- **Offline-First**: InstantDB provides offline support with sync when online
-- **PWA**: Installable as native app with proper manifest and service worker
-- **Magic Link Auth**: Passwordless authentication via email codes
-- **Dark Mode**: Automatically follows system theme preference
+Use the repo scripts unless there is a reason not to:
 
-## Database Schema (InstantDB)
+- `npm run dev` - start the Turbopack dev server
+- `npm run build` - production/static export build
+- `npm run start` - start a production server
+- `npm run lint` - run `eslint .`
+- `npm run generate-assets` - regenerate PWA icons and screenshots
+- `npm run debug -- ...` or `node debug-cli.js ...` - InstantDB debug CLI
 
-**Key Entities:**
-- `todoLists`: Main lists with slug-based URLs, permissions, and creation timestamps
-- `todos`: Individual todo items with text, done status, order, and timestamps
-- `sublists`: Categories/sublists with names and ordering
-- `listMembers`: User membership in lists with roles and timestamps
-- `invitations`: Email invitations with status tracking
-- `$users`: User accounts with email (built-in InstantDB entity)
+On Eric's machine, npm may be managed by mise. If plain `npm` is not found, use:
 
-**Important Relationships:**
-- Lists have owners, members, todos, and sublists
-- Todos belong to lists and optionally to sublists
-- Invitations link to lists and inviters
-
-## Key Files Structure
-
-- `lib/db.ts`: InstantDB initialization and exports
-- `instant.schema.ts`: Database schema definition
-- `app/page.tsx`: Main app component with auth flow
-- `app/[slug]/page.tsx`: Individual todo list view
-- `app/invitations/page.tsx`: Invitation management
-- `instantdb.txt`: Complete InstantDB API reference
-
-## InstantDB Usage Patterns
-
-**Database Connection:**
-```typescript
-import { db } from '../lib/db';
+```bash
+/home/eric/.local/share/mise/installs/node/20/bin/npm
+/home/eric/.local/share/mise/installs/node/20/bin/npx
 ```
 
-**Authentication:**
-```typescript
-const { isLoading, user, error } = db.useAuth();
+`npm run lint` currently passes with existing warnings. Do not treat those
+warnings as newly introduced failures unless your change adds more.
+
+## Key Files
+
+- `app/page.tsx` - dashboard/auth/list creation entrypoint
+- `app/components/HashRouter.tsx` - hash-based routing wrapper
+- `app/components/TodoListView.tsx` - main list UI, todo lifecycle, settings, sharing, classifier UI
+- `app/components/InvitationsView.tsx` - invitation management
+- `lib/db.ts` - InstantDB initialization and typed schema export
+- `lib/classification.ts` - local todo classifier logic
+- `lib/transactions.ts` - shared transaction/permission helpers
+- `instant.schema.ts` - InstantDB schema
+- `instant.perms.ts` - InstantDB permissions
+- `instantdb.txt` - local InstantDB API reference
+- `debug-cli.js` and `debug-examples.sh` - InstantDB admin/debug tooling
+- `next.config.ts` - static export config
+
+There is no `app/[slug]/page.tsx`; list navigation is handled inside the app
+using the hash router and `TodoListView`.
+
+## InstantDB Model
+
+Main entities:
+
+- `todoLists`: list metadata, permissions, settings, `autoSortTodos`,
+  `classifierAggressiveness`
+- `todos`: item text, done state, ordering, timestamps
+- `sublists`: categories/departments, order, `classifierKeywords`
+- `todoClassifications`: classifier training samples and correction history
+- `listMembers`: list membership
+- `invitations`: email invitations
+- `pinnedLists`: user pins for public lists without membership
+- `$users`: Instant auth users
+
+Important links:
+
+- lists have `owner`, `members`, `todos`, `sublists`, `invitations`, `pins`,
+  and `todoClassifications`
+- todos belong to a list and may link to one sublist
+- classifier samples belong to a list and may link to one sublist
+- pins link one user to one public list
+
+When adding fields used in `where` or `order`, add indexes in
+`instant.schema.ts`. Keep `instant.perms.ts` in sync with any new entity or
+relationship.
+
+## InstantDB Workflow
+
+Schema changes are local until pushed:
+
+```bash
+npx --yes instant-cli push schema --yes --app 3629fe62-7453-4610-9a5a-1143a87bcce1
+npx --yes instant-cli push perms --yes --app 3629fe62-7453-4610-9a5a-1143a87bcce1
 ```
 
-**Queries with Relations:**
-```typescript
-const { isLoading, error, data } = db.useQuery({
-  todoLists: {
-    $: { where: { "owner.id": user.id } },
-    owner: {},
-    todos: {},
-    members: { user: {} }
-  }
-});
-```
+Use the explicit mise `npx` path if needed. Schema pushes may require network
+approval in sandboxed environments.
 
-**Transactions:**
-```typescript
-db.transact([
-  db.tx.todoLists[id()].update({ name: "New Name" }),
-  db.tx.todos[id()].update({ done: true })
-]);
-```
+Follow InstantDB permission syntax carefully:
 
-## Important Development Notes
+- use `data.ref("path.to.attr")` for linked attributes
+- `data.ref(...)` returns a list
+- the path must end at an attribute, not an entity
+- do not use unsupported filters like `$exists`, `$nin`, or `$regex`
 
-1. **Always handle loading and error states** when using `db.useQuery()` and `db.useAuth()`
-2. **Use optimistic updates** - InstantDB handles this automatically with transactions
-3. **Slug-based routing** - Todo lists are accessed via `/[slug]` routes
-4. **Permission system** - Check list permissions before allowing edits
-5. **Real-time updates** - No need for manual polling; InstantDB handles real-time sync
-6. **PWA assets** - Run `npm run generate-assets` when updating icons
+## Permissions
 
-## Development Commands
+List permissions are string values:
 
-- `npm run dev`: Start development server with Turbopack
-- `npm run build`: Production build
-- `npm run generate-assets`: Generate PWA icons and screenshots
-- `npm run lint`: Run Next.js linting
-- `node debug-cli.js`: Run InstantDB debug CLI (see Debug CLI section below)
+- `public-write`
+- `public-read`
+- `private-write`
+- `private-read`
+- `owner`
 
-## Debug CLI Tool
+Todos, sublists, classifier samples, members, invitations, and pins inherit or
+derive access from their parent list. Public list pins are private to the pinning
+user and do not make the user a list member.
 
-The project includes a powerful debug CLI (`debug-cli.js`) for testing InstantDB operations, permissions, and data management using the admin SDK.
+Before enabling writes in UI code, use existing permission helpers such as
+`canUserWrite` and match the rules in `instant.perms.ts`.
 
-### Setup
+## Classifier Behavior
 
-The CLI automatically loads environment variables from `.env`:
+The classifier is intentionally local and deterministic. It does not call a
+remote model.
+
+Core rules live in `lib/classification.ts`:
+
+- training prefers the latest checked occurrence per normalized item text
+- checking a categorized todo records a `checked` sample
+- manually moving an item records a positive `manual-move` sample for the new
+  category and a `negative` sample for the old category
+- explicit creation/quick-add/backfill samples remain fallback signals
+- auto-generated samples are not used as positive training data
+- category keyword hints come from `sublists.classifierKeywords`
+- list-level aggressiveness comes from `todoLists.classifierAggressiveness`
+  (`conservative`, `normal`, `aggressive`)
+- fuzzy matching includes token normalization, simple stemming, edit distance,
+  adjacent transposition handling, bigram similarity, containment, and compound
+  expansion using known vocabulary
+
+The UI exposes classifier controls in settings and detailed diagnostics in a
+separate classifier modal. Medium-confidence matches should be suggestions;
+only high-confidence matches should auto-sort.
+
+## Debug CLI
+
+The debug CLI loads InstantDB admin credentials from `.env`:
+
 ```bash
 INSTANT_APP_ID=3629fe62-7453-4610-9a5a-1143a87bcce1
-INSTANT_APP_ADMIN_TOKEN=your_admin_token_here
+INSTANT_APP_ADMIN_TOKEN=...
 ```
 
-### Available Commands
-
-#### 1. Query Command
-Execute database queries with user impersonation and permission testing:
+Common examples:
 
 ```bash
-# Basic queries (runs as admin, bypasses permissions)
-node debug-cli.js query '{todoLists: {}}'
-node debug-cli.js query '{todoLists: {owner: {}, todos: {sublist: {}}}}'
-
-# Query as guest user (respects permissions)
 node debug-cli.js query --guest '{todoLists: {}}'
-
-# Impersonate specific users
+node debug-cli.js query '{todoLists: {owner: {}, todos: {sublist: {}}, sublists: {}}}'
 node debug-cli.js query --impersonate-email "user@example.com" '{todoLists: {}}'
-node debug-cli.js query --impersonate-id "user-id-here" '{todoLists: {}}'
-
-# Complex queries with filters
-node debug-cli.js query '{todoLists: {$: {where: {permission: "public-read"}}, todos: {}}}'
-
-# Different output formats
-node debug-cli.js query '{todoLists: {}, todos: {}}' --format count
-node debug-cli.js query '{todoLists: {}}' --format table
+node debug-cli.js transact --dry-run update todoLists "list-id" '{permission: "public-read"}'
 ```
 
-**Query Syntax:**
-- Supports both JSON and JavaScript object literal formats
-- Use single quotes around the query object
-- Built-in error handling with helpful suggestions
+Use it for permission checks, data inspection, and admin-token debugging. See
+`debug-examples.sh` for more examples.
 
-#### 2. Transact Command
-Execute database transactions (create, update, delete operations):
+## Development Notes
 
-```bash
-# Update operations
-node debug-cli.js transact update todoLists "list-id" '{permission: "public-read"}'
-node debug-cli.js transact update todos "todo-id" '{done: true, text: "Updated text"}'
-
-# Delete operations  
-node debug-cli.js transact delete todos "todo-id" '{}'
-
-# Dry run to preview changes
-node debug-cli.js transact --dry-run update todoLists "list-id" '{permission: "public-write"}'
-
-# Run as specific user (respects permissions)
-node debug-cli.js transact --guest update todos "todo-id" '{done: true}'
-node debug-cli.js transact --impersonate-email "user@example.com" update todos "todo-id" '{text: "New text"}'
-```
-
-**Transaction Syntax:**
-- `operation`: `update`, `create`, or `delete`
-- `entity`: Entity name (e.g., `todoLists`, `todos`, `sublists`)
-- `id`: Entity ID to operate on
-- `data`: JSON object with fields to update
-
-#### 3. User Command
-Manage user accounts and retrieve user information:
-
-```bash
-# Get user by email
-node debug-cli.js user "user@example.com"
-
-# Get user by ID
-node debug-cli.js user --id "user-id-here"
-
-# Create authentication token for user
-node debug-cli.js user "user@example.com" --create-token
-```
-
-#### 4. Presence Command
-Check real-time presence in specific rooms:
-
-```bash
-# List users in a todo list room
-node debug-cli.js presence todoList "list-slug-here"
-
-# General presence listing
-node debug-cli.js presence list
-```
-
-### Common Use Cases
-
-#### Testing Permissions
-```bash
-# Test that guests can only see public lists
-node debug-cli.js query --guest '{todoLists: {}}'
-
-# Verify owner can see their private lists
-node debug-cli.js query --impersonate-email "owner@example.com" '{todoLists: {}}'
-
-# Check if user can access specific list
-node debug-cli.js query --impersonate-email "user@example.com" '{todoLists: {$: {where: {slug: "specific-list"}}}}'
-```
-
-#### Permission Debugging
-```bash
-# Make a list public for testing
-node debug-cli.js transact update todoLists "list-id" '{permission: "public-read"}'
-
-# Test guest access after making public
-node debug-cli.js query --guest '{todoLists: {$: {where: {slug: "list-slug"}}}}'
-
-# Verify todos inherit list permissions
-node debug-cli.js query --guest '{todoLists: {todos: {}}}'
-```
-
-#### Data Management
-```bash
-# Count all entities
-node debug-cli.js query '{todoLists: {}, todos: {}, users: {}}' --format count
-
-# Find lists by permission type
-node debug-cli.js query '{todoLists: {$: {where: {permission: "private-write"}}, owner: {}}}'
-
-# Get detailed list with all relations
-node debug-cli.js query '{todoLists: {$: {where: {slug: "my-list"}}, owner: {}, todos: {sublist: {}}, members: {user: {}}}}'
-```
-
-### Error Handling
-
-The CLI provides helpful error messages and suggestions:
-- Invalid query syntax guidance
-- Permission error explanations  
-- Common InstantDB patterns and examples
-- Automatic environment setup validation
-
-### Example Workflows
-
-See `debug-examples.sh` for comprehensive usage examples and `README-debug-cli.md` for detailed documentation.
-
-The debug CLI is essential for:
-- Testing permission rules during development
-- Debugging data access issues
-- Managing user accounts and content
-- Validating InstantDB query patterns
-- Performance testing with different user contexts
-
-## Authentication Flow
-
-1. User enters email on landing page
-2. Magic code sent via InstantDB auth
-3. User enters code to complete sign-in
-4. Authenticated users see their lists and can create new ones
-
-## Critical InstantDB API Reference
-
-The complete API reference is in `instantdb.txt`. Key methods:
-- `db.useQuery(query)` - Real-time queries
-- `db.useAuth()` - Authentication state
-- `db.transact(chunks)` - Optimistic updates
-- `db.auth.sendMagicCode()` - Send login code
-- `db.auth.signInWithMagicCode()` - Complete login
-
-**Remember**: Only use documented InstantDB APIs - do not hallucinate methods not listed in the reference.
+- Handle `db.useAuth()` and `db.useQuery()` loading/error states.
+- InstantDB transactions are optimistic; avoid adding manual polling.
+- Do not use undocumented InstantDB APIs; consult `instantdb.txt` or official
+  docs when unsure.
+- Keep edits scoped. This app has a large `TodoListView.tsx`; prefer extracting
+  only when it clearly reduces risk or complexity.
+- Preserve static-export compatibility. Avoid server-only Next features unless
+  the deployment model changes.
+- PWA asset scripts require ImageMagick `convert`.
+- After dependency or framework changes, run `npm run build` and `npm run lint`.
+- After schema/permission changes, push the relevant InstantDB files and note
+  that the remote schema/perms were updated.
