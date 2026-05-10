@@ -31,12 +31,14 @@ const _schema = i.schema({
       text: i.string(),
     }),
     sublists: i.entity({
+      classifierKeywords: i.string().optional(),
       createdAt: i.date().indexed(),
       name: i.string(),
       order: i.number().indexed(),
     }),
     todoLists: i.entity({
       autoSortTodos: i.boolean().optional(),
+      classifierAggressiveness: i.string().optional(),
       createdAt: i.date().indexed(),
       hideCompleted: i.boolean().optional(),
       name: i.string(),

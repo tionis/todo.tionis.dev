@@ -25,7 +25,17 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { db } from '../../lib/db';
 import { copyToClipboard, getListUrl } from "../../lib/utils";
-import { classifyTodoText, getClassifierStatus, normalizeItemText, type ClassificationResult } from "../../lib/classification";
+import {
+  classifyTodoText,
+  getClassificationCandidates,
+  getClassifierStatus,
+  normalizeItemText,
+  parseClassifierKeywords,
+  shouldAutoSortClassification,
+  shouldSuggestClassification,
+  type ClassificationResult,
+  type ClassifierAggressiveness,
+} from "../../lib/classification";
 import { executeTransaction, canUserWrite, canUserView, transferListOwnership } from "../../lib/transactions";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
@@ -48,6 +58,7 @@ type Sublist = InstaQLEntity<AppSchema, "sublists", { todos: {} }>;
 interface CreateTodoResult {
   transactions: any[];
   classification: ClassificationResult | null;
+  suggestedClassification: ClassificationResult | null;
 }
 
 function createClassificationTransaction(
@@ -75,8 +86,18 @@ function createTodoTransactions(
   const maxOrder = Math.max(0, ...todoList.todos.map((todo) => todo.order || 0));
   const classification = explicitSublistId || !todoList.autoSortTodos
     ? null
-    : classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications);
-  const sublistId = explicitSublistId || classification?.sublistId;
+    : classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications, {
+      aggressiveness: todoList.classifierAggressiveness,
+    });
+  const shouldAutoSort = shouldAutoSortClassification(classification, {
+    aggressiveness: todoList.classifierAggressiveness,
+  });
+  const suggestedClassification = !explicitSublistId && classification && !shouldAutoSort && shouldSuggestClassification(classification, {
+    aggressiveness: todoList.classifierAggressiveness,
+  })
+    ? classification
+    : null;
+  const sublistId = explicitSublistId || (shouldAutoSort ? classification?.sublistId : undefined);
   const source = explicitSublistId ? explicitSource : "auto";
 
   let todoTx = db.tx.todos[id()]
@@ -98,7 +119,7 @@ function createTodoTransactions(
     transactions.push(createClassificationTransaction(todoList.id, sublistId, text, source));
   }
 
-  return { transactions, classification };
+  return { transactions, classification: shouldAutoSort ? classification : null, suggestedClassification };
 }
 
 interface TodoListViewProps {
@@ -127,11 +148,20 @@ export default function TodoListView({ slug }: TodoListViewProps) {
 
   // Helper functions that use toast notifications
   const toggleTodo = async (todo: Todo) => {
-    const success = await executeTransaction(
+    const nextDone = !todo.done;
+    const transactions: any[] = [
       db.tx.todos[todo.id].update({
-        done: !todo.done,
+        done: nextDone,
         updatedAt: new Date().toISOString()
-      }),
+      })
+    ];
+
+    if (nextDone && todo.sublist?.id) {
+      transactions.push(createClassificationTransaction(todoList.id, todo.sublist.id, todo.text, "checked"));
+    }
+
+    const success = await executeTransaction(
+      transactions,
       "Failed to update todo"
     );
     
@@ -956,6 +986,9 @@ function GlobalDragWrapper({
         
         const transactions: any[] = [updateTx];
         if (targetSublistId !== 'uncategorized') {
+          if (activeTodo.sublist?.id && activeTodo.sublist.id !== targetSublistId) {
+            transactions.push(createClassificationTransaction(todoList.id, activeTodo.sublist.id, activeTodo.text, "negative"));
+          }
           transactions.push(createClassificationTransaction(todoList.id, targetSublistId, activeTodo.text, "manual-move"));
         }
 
@@ -984,6 +1017,9 @@ function GlobalDragWrapper({
         
         const transactions: any[] = [updateTx];
         if (targetSublistId) {
+          if (currentSublistId && currentSublistId !== targetSublistId) {
+            transactions.push(createClassificationTransaction(todoList.id, currentSublistId, activeTodo.text, "negative"));
+          }
           transactions.push(createClassificationTransaction(todoList.id, targetSublistId, activeTodo.text, "manual-move"));
         }
 
@@ -1083,6 +1119,11 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
   const [permission, setPermission] = useState(todoList.permission);
   const [hideCompleted, setHideCompleted] = useState(todoList.hideCompleted);
   const [autoSortTodos, setAutoSortTodos] = useState(!!todoList.autoSortTodos);
+  const [classifierAggressiveness, setClassifierAggressiveness] = useState<ClassifierAggressiveness>(
+    todoList.classifierAggressiveness === "conservative" || todoList.classifierAggressiveness === "aggressive"
+      ? todoList.classifierAggressiveness
+      : "normal"
+  );
   const [name, setName] = useState(todoList.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
@@ -1095,6 +1136,7 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
         permission,
         hideCompleted,
         autoSortTodos,
+        classifierAggressiveness,
         name,
         updatedAt: new Date().toISOString()
       })
@@ -1180,6 +1222,8 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
           todoList={todoList}
           autoSortTodos={autoSortTodos}
           setAutoSortTodos={setAutoSortTodos}
+          classifierAggressiveness={classifierAggressiveness}
+          setClassifierAggressiveness={setClassifierAggressiveness}
           onOpenDetails={() => setShowClassifierModal(true)}
         />
       </div>
@@ -1307,6 +1351,7 @@ function SettingsPanel({ todoList, onClose, addToast }: { todoList: TodoList; on
       {showClassifierModal && (
         <ClassifierDetailsModal
           todoList={todoList}
+          classifierAggressiveness={classifierAggressiveness}
           onClose={() => setShowClassifierModal(false)}
           addToast={addToast}
         />
@@ -1319,14 +1364,20 @@ function ClassifierSettingsRow({
   todoList,
   autoSortTodos,
   setAutoSortTodos,
+  classifierAggressiveness,
+  setClassifierAggressiveness,
   onOpenDetails,
 }: {
   todoList: TodoList;
   autoSortTodos: boolean;
   setAutoSortTodos: (enabled: boolean) => void;
+  classifierAggressiveness: ClassifierAggressiveness;
+  setClassifierAggressiveness: (value: ClassifierAggressiveness) => void;
   onOpenDetails: () => void;
 }) {
-  const status = getClassifierStatus(todoList.sublists, todoList.todos, todoList.todoClassifications);
+  const status = getClassifierStatus(todoList.sublists, todoList.todos, todoList.todoClassifications, {
+    aggressiveness: classifierAggressiveness,
+  });
 
   return (
     <div className="border-t border-gray-200 dark:border-gray-600 pt-4 space-y-3">
@@ -1352,6 +1403,25 @@ function ClassifierSettingsRow({
           />
           <span className="text-sm text-gray-700 dark:text-gray-300">Auto-sort new uncategorized todos</span>
         </label>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <label className="text-sm text-gray-700 dark:text-gray-300" htmlFor="classifier-aggressiveness">
+          Aggressiveness
+        </label>
+        <select
+          id="classifier-aggressiveness"
+          value={classifierAggressiveness}
+          onChange={(e) => setClassifierAggressiveness(e.target.value as ClassifierAggressiveness)}
+          className="text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+        >
+          <option value="conservative">Conservative</option>
+          <option value="normal">Normal</option>
+          <option value="aggressive">Aggressive</option>
+        </select>
+      </div>
+
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={onOpenDetails}
@@ -1366,19 +1436,29 @@ function ClassifierSettingsRow({
 
 function ClassifierDetailsModal({
   todoList,
+  classifierAggressiveness,
   onClose,
   addToast,
 }: {
   todoList: TodoList;
+  classifierAggressiveness: ClassifierAggressiveness;
   onClose: () => void;
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [testText, setTestText] = useState("");
   const [backfillError, setBackfillError] = useState<string | null>(null);
-  const status = getClassifierStatus(todoList.sublists, todoList.todos, todoList.todoClassifications);
+  const [keywordDrafts, setKeywordDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(todoList.sublists.map((sublist) => [sublist.id, sublist.classifierKeywords || ""]))
+  );
+  const [keywordStatus, setKeywordStatus] = useState<string | null>(null);
+  const classifierOptions = { aggressiveness: classifierAggressiveness };
+  const status = getClassifierStatus(todoList.sublists, todoList.todos, todoList.todoClassifications, classifierOptions);
   const testResult = testText.trim()
-    ? classifyTodoText(testText, todoList.sublists, todoList.todos, todoList.todoClassifications)
+    ? classifyTodoText(testText, todoList.sublists, todoList.todos, todoList.todoClassifications, classifierOptions)
     : null;
+  const testCandidates = testText.trim()
+    ? getClassificationCandidates(testText, todoList.sublists, todoList.todos, todoList.todoClassifications, classifierOptions)
+    : [];
   const recentSamples = [...todoList.todoClassifications]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 6);
@@ -1388,32 +1468,49 @@ function ClassifierDetailsModal({
     return todoList.sublists.find((sublist) => sublist.id === sublistId)?.name || "Deleted category";
   };
 
-  const captureCurrentTodos = async () => {
+  const captureCompletedTodos = async () => {
     const existingKeys = new Set(
       todoList.todoClassifications
         .filter((sample) => sample.sublist?.id)
-        .map((sample) => `${sample.normalizedText}:${sample.sublist!.id}`)
+        .map((sample) => `${sample.normalizedText || normalizeItemText(sample.text)}:${sample.sublist!.id}:${sample.source}`)
     );
     const transactions = todoList.todos.flatMap((todo) => {
-      if (!todo.sublist?.id) return [];
-      const key = `${normalizeItemText(todo.text)}:${todo.sublist.id}`;
+      if (!todo.done || !todo.sublist?.id) return [];
+      const key = `${normalizeItemText(todo.text)}:${todo.sublist.id}:checked`;
       if (existingKeys.has(key)) return [];
       existingKeys.add(key);
-      return [createClassificationTransaction(todoList.id, todo.sublist.id, todo.text, "backfill")];
+      return [createClassificationTransaction(todoList.id, todo.sublist.id, todo.text, "checked")];
     });
 
     if (transactions.length === 0) {
-      addToast("No new categorized todos to capture", "info");
+      addToast("No new completed categorized todos to capture", "info");
       return;
     }
 
     try {
       await db.transact(transactions);
       setBackfillError(null);
-      addToast(`Captured ${transactions.length} classifier example${transactions.length !== 1 ? 's' : ''}`, "success");
+      addToast(`Captured ${transactions.length} completed classifier example${transactions.length !== 1 ? 's' : ''}`, "success");
     } catch (err) {
       console.error("Failed to capture classifier examples:", err);
-      setBackfillError("Failed to capture current categorized todos.");
+      setBackfillError("Failed to capture completed categorized todos.");
+    }
+  };
+
+  const saveKeywordHints = async () => {
+    const transactions = todoList.sublists.map((sublist) =>
+      db.tx.sublists[sublist.id].update({
+        classifierKeywords: parseClassifierKeywords(keywordDrafts[sublist.id]).join(", "),
+      })
+    );
+
+    try {
+      await db.transact(transactions);
+      setKeywordStatus("Saved keyword hints.");
+      addToast("Classifier keywords saved", "success");
+    } catch (err) {
+      console.error("Failed to save classifier keywords:", err);
+      setKeywordStatus("Failed to save keyword hints.");
     }
   };
 
@@ -1449,6 +1546,27 @@ function ClassifierDetailsModal({
           </div>
         </div>
 
+        <div className="grid grid-cols-4 gap-2 text-xs">
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <div className="text-gray-500 dark:text-gray-400">Completed</div>
+            <div className="text-lg text-gray-900 dark:text-white">{status.completedExamples}</div>
+          </div>
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <div className="text-gray-500 dark:text-gray-400">Fallback</div>
+            <div className="text-lg text-gray-900 dark:text-white">{status.fallbackExamples}</div>
+          </div>
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <div className="text-gray-500 dark:text-gray-400">Keywords</div>
+            <div className="text-lg text-gray-900 dark:text-white">{status.keywordExamples}</div>
+          </div>
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <div className="text-gray-500 dark:text-gray-400">Evaluation</div>
+            <div className="text-lg text-gray-900 dark:text-white">
+              {status.evaluation.accuracy === null ? "n/a" : `${Math.round(status.evaluation.accuracy * 100)}%`}
+            </div>
+          </div>
+        </div>
+
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Try item text</label>
           <input
@@ -1459,12 +1577,56 @@ function ClassifierDetailsModal({
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
           />
           {testText.trim() && (
-            <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-              {testResult
-                ? `${getSublistName(testResult.sublistId)} (${Math.round(testResult.confidence * 100)}%, ${testResult.reason})`
-                : "No confident category"}
+            <div className="mt-2 space-y-1 text-xs text-gray-600 dark:text-gray-400">
+              <div>
+                {testResult
+                  ? `${getSublistName(testResult.sublistId)} (${Math.round(testResult.confidence * 100)}%, ${testResult.reason})`
+                  : "No confident category"}
+              </div>
+              {testCandidates.length > 0 && (
+                <div className="space-y-1">
+                  {testCandidates.map((candidate) => (
+                    <div key={`${candidate.sublistId}-${candidate.reason}`} className="flex justify-between gap-3">
+                      <span className="truncate">{getSublistName(candidate.sublistId)}</span>
+                      <span className="shrink-0">{Math.round(candidate.confidence * 100)}% · {candidate.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
+        </div>
+
+        <div>
+          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Category keywords</div>
+          <div className="space-y-2">
+            {[...todoList.sublists]
+              .sort((a, b) => a.order - b.order)
+              .map((sublist) => (
+                <label key={sublist.id} className="block">
+                  <span className="block text-xs text-gray-600 dark:text-gray-400 mb-1">{sublist.name}</span>
+                  <input
+                    type="text"
+                    value={keywordDrafts[sublist.id] || ""}
+                    onChange={(e) => setKeywordDrafts((drafts) => ({ ...drafts, [sublist.id]: e.target.value }))}
+                    placeholder="milk, yogurt, cheese"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                  />
+                </label>
+              ))}
+          </div>
+          <div className="flex items-center gap-3 mt-2">
+            <button
+              type="button"
+              onClick={saveKeywordHints}
+              className="text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-3 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+            >
+              Save Keywords
+            </button>
+            {keywordStatus && (
+              <span className="text-xs text-gray-600 dark:text-gray-400">{keywordStatus}</span>
+            )}
+          </div>
         </div>
 
         {status.categoryCounts.length > 0 && (
@@ -1497,10 +1659,10 @@ function ClassifierDetailsModal({
         <div>
           <button
             type="button"
-            onClick={captureCurrentTodos}
+            onClick={captureCompletedTodos}
             className="text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-3 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
           >
-            Capture Current Todos
+            Capture Completed Todos
           </button>
         </div>
 
@@ -2139,17 +2301,28 @@ function TodoForm({
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [selectedSublist, setSelectedSublist] = useState<string>("");
+  const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const previewClassification = text.trim() && !selectedSublist && todoList.autoSortTodos
+    ? classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications, {
+      aggressiveness: todoList.classifierAggressiveness,
+    })
+    : null;
+  const previewSublist = previewClassification
+    ? todoList.sublists.find((item) => item.id === previewClassification.sublistId)
+    : null;
+  const previewWillAutoSort = shouldAutoSortClassification(previewClassification, {
+    aggressiveness: todoList.classifierAggressiveness,
+  });
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const input = e.currentTarget.input as HTMLInputElement;
-    const text = input.value.trim();
-    if (!text) return;
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
 
-    const { transactions, classification } = createTodoTransactions(
+    const { transactions, classification, suggestedClassification } = createTodoTransactions(
       todoList,
-      text,
+      trimmedText,
       selectedSublist || undefined,
       "explicit-create",
     );
@@ -2161,7 +2334,13 @@ function TodoForm({
           addToast(`Auto-sorted to ${sublist.name}`, "info");
         }
       }
-      input.value = "";
+      if (suggestedClassification) {
+        const sublist = todoList.sublists.find((item) => item.id === suggestedClassification.sublistId);
+        if (sublist) {
+          addToast(`Suggested category: ${sublist.name}`, "info");
+        }
+      }
+      setText("");
       setError(null);
     }).catch(err => {
       console.error("Failed to create todo:", err);
@@ -2185,6 +2364,8 @@ function TodoForm({
             placeholder="What needs to be done?"
             type="text"
             name="input"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
           />
           <select
             value={selectedSublist}
@@ -2199,6 +2380,12 @@ function TodoForm({
             ))}
           </select>
         </div>
+        {previewSublist && (
+          <div className="text-xs text-gray-600 dark:text-gray-400">
+            {previewWillAutoSort ? "Will auto-sort" : "Suggested"}: {previewSublist.name}
+            {" "}({Math.round(previewClassification!.confidence * 100)}%, {previewClassification!.reason})
+          </div>
+        )}
       </form>
     </div>
   );
