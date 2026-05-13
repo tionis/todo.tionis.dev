@@ -77,6 +77,18 @@ function createClassificationTransaction(
     .link({ list: listId, sublist: sublistId });
 }
 
+function createTodoDeleteTransactions(listId: string, todos: Todo[]) {
+  const archiveTransactions = todos.flatMap((todo) => {
+    if (!todo.sublist?.id) return [];
+    return [createClassificationTransaction(listId, todo.sublist.id, todo.text, "deleted")];
+  });
+
+  return [
+    ...archiveTransactions,
+    ...todos.map((todo) => db.tx.todos[todo.id].delete()),
+  ];
+}
+
 function createTodoTransactions(
   todoList: TodoList,
   text: string,
@@ -174,7 +186,7 @@ export default function TodoListView({ slug }: TodoListViewProps) {
 
   const deleteTodo = async (todo: Todo) => {
     const success = await executeTransaction(
-      db.tx.todos[todo.id].delete(),
+      createTodoDeleteTransactions(todoList.id, [todo]),
       "Failed to delete todo"
     );
     
@@ -508,7 +520,7 @@ function TodoListApp({
   const handleDeleteCompleted = () => {
     const completedTodos = todoList.todos.filter(todo => todo.done);
     
-    db.transact(completedTodos.map(todo => db.tx.todos[todo.id].delete())).then(() => {
+    db.transact(createTodoDeleteTransactions(todoList.id, completedTodos)).then(() => {
       addToast(`Successfully deleted ${completedTodos.length} completed todos`, "success");
       setShowDeleteCompletedConfirm(false);
     }).catch(err => {
