@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { id, User } from "@instantdb/react";
 import { db } from "../lib/db";
 import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
@@ -54,7 +53,6 @@ function App() {
 }
 
 function LandingPage() {
-  const router = useRouter();
   const [sentEmail, setSentEmail] = useState("");
 
   return (
@@ -97,7 +95,6 @@ function LandingPage() {
 }
 
 function AuthenticatedApp({ user }: { user: User }) {
-  const router = useRouter();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: any} | null>(null);
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
@@ -307,7 +304,6 @@ function TodoListCard({
   onDelete: (list: any) => void;
   onUnpin: (pinId: string) => void;
 }) {
-  const router = useRouter();
   const [showShareModal, setShowShareModal] = useState(false);
   
   const isOwner = list.owner && list.owner.id === user.id;
@@ -315,6 +311,7 @@ function TodoListCard({
   const totalTodos = list.todos.length;
   const completedTodos = list.todos.filter((todo: any) => todo.done).length;
   const remainingTodos = totalTodos - completedTodos;
+  const listHref = `#/list/${encodeURIComponent(list.slug)}`;
 
   const deleteList = () => {
     onDelete(list);
@@ -323,11 +320,13 @@ function TodoListCard({
   return (
     <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow bg-white dark:bg-gray-800">
       <div className="flex justify-between items-start mb-3">
-        <h3 
-          className="font-medium text-lg cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 text-gray-900 dark:text-white"
-          onClick={() => window.location.hash = `/list/${list.slug}`}
-        >
-          {list.name}
+        <h3 className="font-medium text-lg">
+          <a
+            href={listHref}
+            className="text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+          >
+            {list.name}
+          </a>
         </h3>
         <div className="flex space-x-1">
           <button
@@ -366,12 +365,12 @@ function TodoListCard({
         </p>
       </div>
 
-      <button
-        onClick={() => window.location.hash = `/list/${list.slug}`}
-        className="w-full mt-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-sm text-gray-900 dark:text-white"
+      <a
+        href={listHref}
+        className="block w-full mt-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-sm text-center text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         Open List
-      </button>
+      </a>
 
       {showShareModal && (
         <ShareModal 

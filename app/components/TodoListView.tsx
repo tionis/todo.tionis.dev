@@ -2326,6 +2326,7 @@ function TodoForm({
   const previewWillAutoSort = shouldAutoSortClassification(previewClassification, {
     aggressiveness: todoList.classifierAggressiveness,
   });
+  const canSubmit = text.trim().length > 0;
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -2373,6 +2374,7 @@ function TodoForm({
           <input
             className="flex-1 px-3 py-2 outline-none bg-transparent border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
             autoFocus
+            enterKeyHint="done"
             placeholder="What needs to be done?"
             type="text"
             name="input"
@@ -2391,6 +2393,13 @@ function TodoForm({
               </option>
             ))}
           </select>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto w-full"
+          >
+            Add
+          </button>
         </div>
         {previewSublist && (
           <div className="text-xs text-gray-600 dark:text-gray-400">
