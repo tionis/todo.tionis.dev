@@ -1,17 +1,25 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { id, User } from "@instantdb/react";
+import { User } from "@instantdb/react";
 import { db } from "../lib/db";
 import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
-import { executeTransaction, canUserWrite, canUserView } from "../lib/transactions";
+import { executeTransaction } from "../lib/transactions";
+import { buildCreateListFromTemplateTransactions, type TemplateCopyOptions } from "../lib/listTemplates";
+import { parseListTags, tagInputToList } from "../lib/tags";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
 import { useHashRouter } from "./components/HashRouter";
 import TodoListView from "./components/TodoListView";
 import InvitationsView from "./components/InvitationsView";
-import type { AppSchema } from "../lib/db";
+
+type CreateListPayload = {
+  name: string;
+  sourceListId?: string;
+  tags: string[];
+  options: TemplateCopyOptions;
+};
 
 function App() {
   const [mounted, setMounted] = useState(false);
@@ -29,7 +37,7 @@ function App() {
     }
   ], []);
 
-  const { currentRoute, routeParams, navigate } = useHashRouter(routes);
+  const { currentRoute, routeParams } = useHashRouter(routes);
 
   useEffect(() => {
     setMounted(true);
@@ -98,6 +106,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: any} | null>(null);
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
   const { isLoading: listsLoading, error: listsError, data: listsData } = db.useQuery({
     todoLists: {
@@ -111,7 +120,9 @@ function AuthenticatedApp({ user }: { user: User }) {
         order: { createdAt: "desc" }
       },
       owner: {},
-      todos: {},
+      todos: { sublist: {} },
+      sublists: {},
+      todoClassifications: { sublist: {} },
       members: { user: {} }
     }
   }) as unknown as { isLoading: boolean; error: Error | null; data: { todoLists: any[] } | null };
@@ -124,7 +135,9 @@ function AuthenticatedApp({ user }: { user: User }) {
       },
       list: {
         owner: {},
-        todos: {},
+        todos: { sublist: {} },
+        sublists: {},
+        todoClassifications: { sublist: {} },
         members: { user: {} }
       },
       user: {}
@@ -155,22 +168,33 @@ function AuthenticatedApp({ user }: { user: User }) {
     return [{ ...list, pinId: pin.id, pinnedAt: pin.createdAt }];
   });
   const dashboardLists = [...ownAndMemberLists, ...pinnedLists];
+  const allTags = Array.from(
+    new Map(
+      dashboardLists
+        .flatMap((list) => parseListTags(list.tags))
+        .map((tag) => [tag.toLowerCase(), tag])
+    ).values()
+  ).sort((a, b) => a.localeCompare(b));
+  const visibleDashboardLists = activeTag
+    ? dashboardLists.filter((list) => parseListTags(list.tags).some((tag) => tag.toLowerCase() === activeTag.toLowerCase()))
+    : dashboardLists;
 
-  const createNewList = async (listName: string) => {
+  const createNewList = async ({ name, sourceListId, tags, options }: CreateListPayload) => {
     const slug = generateSlug();
+    const sourceList = sourceListId
+      ? dashboardLists.find((list) => list.id === sourceListId)
+      : null;
+    const { transactions } = buildCreateListFromTemplateTransactions({
+      sourceList,
+      ownerId: user.id,
+      listName: name,
+      slug,
+      tags,
+      options,
+    });
     
     const success = await executeTransaction(
-      db.tx.todoLists[id()]
-        .update({
-          name: listName,
-          slug,
-          permission: "private-write",
-          hideCompleted: false,
-          autoSortTodos: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        })
-        .link({ owner: user.id }),
+      transactions,
       "Failed to create list"
     );
     
@@ -228,6 +252,28 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         </div>
 
+        {allTags.length > 0 && (
+          <div className="mb-6 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTag(null)}
+              className={`px-3 py-1 text-sm rounded border ${activeTag === null ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"}`}
+            >
+              All
+            </button>
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => setActiveTag(tag)}
+                className={`px-3 py-1 text-sm rounded border ${activeTag?.toLowerCase() === tag.toLowerCase() ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"}`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+
         {dashboardLists.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 mb-4">You don't have any todo lists yet.</p>
@@ -238,9 +284,19 @@ function AuthenticatedApp({ user }: { user: User }) {
               Create Your First List
             </button>
           </div>
+        ) : visibleDashboardLists.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500 mb-4">No lists tagged "{activeTag}".</p>
+            <button
+              onClick={() => setActiveTag(null)}
+              className="px-6 py-3 bg-gray-600 text-white rounded hover:bg-gray-700"
+            >
+              Show All Lists
+            </button>
+          </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {dashboardLists.map(list => (
+            {visibleDashboardLists.map(list => (
               <TodoListCard 
                 key={list.id} 
                 list={list} 
@@ -265,6 +321,7 @@ function AuthenticatedApp({ user }: { user: User }) {
           <CreateListModal 
             onClose={() => setShowCreateModal(false)}
             onCreate={createNewList}
+            availableLists={dashboardLists}
           />
         )}
 
@@ -360,6 +417,18 @@ function TodoListCard({
       <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
         <p>{remainingTodos} remaining, {completedTodos} completed</p>
         <p>Permission: {list.permission}</p>
+        {parseListTags(list.tags).length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1">
+            {parseListTags(list.tags).map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
         <p className="text-xs text-gray-500 dark:text-gray-400">
           {isPinned ? "Pinned public list" : isOwner ? "You own this list" : "You're a member"}
         </p>
@@ -398,7 +467,7 @@ function ShareModal({
       await copyToClipboard(listUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch {
       setShowError("Failed to copy URL");
     }
   };
@@ -547,19 +616,48 @@ function CodeStep({ sentEmail }: { sentEmail: string }) {
 }
 
 // Modal Components
-function CreateListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => void }) {
+function CreateListModal({
+  onClose,
+  onCreate,
+  availableLists,
+}: {
+  onClose: () => void;
+  onCreate: (payload: CreateListPayload) => void;
+  availableLists: any[];
+}) {
   const [listName, setListName] = useState("");
+  const [sourceListId, setSourceListId] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const [copyCategories, setCopyCategories] = useState(true);
+  const [copyTodos, setCopyTodos] = useState(false);
+  const [copyClassifier, setCopyClassifier] = useState(false);
+  const selectedSourceList = availableLists.find((list) => list.id === sourceListId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (listName.trim()) {
-      onCreate(listName.trim());
+      onCreate({
+        name: listName.trim(),
+        sourceListId: sourceListId || undefined,
+        tags: tagInputToList(tagsInput),
+        options: selectedSourceList
+          ? {
+            categories: copyCategories,
+            todos: copyTodos,
+            classifier: copyClassifier,
+          }
+          : {
+            categories: false,
+            todos: false,
+            classifier: false,
+          },
+      });
       onClose();
     }
   };
 
   return (
-    <Modal onClose={onClose} title="Create New List">
+    <Modal onClose={onClose} title="Create New List" maxWidth="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
@@ -574,6 +672,76 @@ function CreateListModal({ onClose, onCreate }: { onClose: () => void; onCreate:
             autoFocus
           />
         </div>
+        <div>
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+            Tags
+          </label>
+          <input
+            type="text"
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+            placeholder="groceries, travel, work"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+          />
+        </div>
+        {availableLists.length > 0 && (
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3 space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                Start from existing list
+              </label>
+              <select
+                value={sourceListId}
+                onChange={(e) => setSourceListId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                <option value="">Blank list</option>
+                {availableLists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    {list.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedSourceList && (
+              <div className="grid gap-2 sm:grid-cols-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={copyCategories}
+                    onChange={(e) => {
+                      setCopyCategories(e.target.checked);
+                      if (!e.target.checked) setCopyClassifier(false);
+                    }}
+                    className="rounded"
+                  />
+                  Categories
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={copyTodos}
+                    onChange={(e) => setCopyTodos(e.target.checked)}
+                    className="rounded"
+                  />
+                  Todo items
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={copyClassifier}
+                    onChange={(e) => {
+                      setCopyClassifier(e.target.checked);
+                      if (e.target.checked) setCopyCategories(true);
+                    }}
+                    className="rounded"
+                  />
+                  Classifier
+                </label>
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex space-x-3">
           <button
             type="submit"

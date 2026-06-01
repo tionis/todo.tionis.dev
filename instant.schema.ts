@@ -44,6 +44,7 @@ const _schema = i.schema({
       name: i.string(),
       permission: i.string().indexed(),
       slug: i.string().unique().indexed(),
+      tags: i.string().optional(),
       updatedAt: i.date().optional(),
     }),
     todos: i.entity({
