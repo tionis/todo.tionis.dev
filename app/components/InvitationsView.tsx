@@ -37,7 +37,7 @@ export default function InvitationsView({}: InvitationsViewProps) {
 
   if (authError) {
     return (
-      <div className="font-mono min-h-screen flex justify-center items-center bg-gray-50 dark:bg-gray-900">
+      <div className="font-mono min-h-screen flex justify-center items-center bg-gray-50 dark:bg-slate-900">
         <div className="max-w-md w-full p-4 text-center">
           <h1 className="text-2xl mb-4 text-gray-900 dark:text-white">Sign In Required</h1>
           <p className="mb-4 text-gray-600 dark:text-gray-400">
@@ -171,7 +171,7 @@ export default function InvitationsView({}: InvitationsViewProps) {
   };
 
   return (
-    <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
+    <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-slate-900">
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center space-x-4 mb-6">
           <button

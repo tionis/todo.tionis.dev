@@ -597,7 +597,7 @@ function TodoListApp({
   };
 
   return (
-    <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-gray-900">
+    <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-slate-900">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-start mb-6">
           <div className="flex items-center space-x-4">
@@ -3237,8 +3237,8 @@ function SublistSection({
       
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-slate-100 dark:bg-slate-900 flex items-start sm:items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full relative shadow-xl">
             <h4 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Delete Category</h4>
             <p className="text-gray-600 dark:text-gray-300 mb-6">
               Delete category "<strong>{sublist.name}</strong>" and all its todos?

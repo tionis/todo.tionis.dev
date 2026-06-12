@@ -40,17 +40,17 @@ export default function Modal({ children, onClose, title, maxWidth = 'md' }: Mod
 
   return (
     <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-slate-100 dark:bg-slate-900 flex items-start sm:items-center justify-center z-50 p-4 overflow-y-auto"
       onClick={handleBackdropClick}
     >
       <div 
         ref={modalRef}
-        className={`bg-white dark:bg-gray-800 p-6 rounded-lg ${maxWidthClass} w-full mx-4 relative`}
+        className={`bg-white dark:bg-gray-800 rounded-lg ${maxWidthClass} w-full relative max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden shadow-xl`}
       >
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none"
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none z-10"
           aria-label="Close modal"
         >
           ×
@@ -58,13 +58,13 @@ export default function Modal({ children, onClose, title, maxWidth = 'md' }: Mod
 
         {/* Title */}
         {title && (
-          <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white pr-8">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white pr-8 px-6 pt-6 pb-4 shrink-0">
             {title}
           </h3>
         )}
 
         {/* Content */}
-        <div className={title ? '' : 'pt-6'}>
+        <div className={`${title ? 'px-6 pb-6' : 'p-6'} overflow-y-auto min-h-0`}>
           {children}
         </div>
       </div>

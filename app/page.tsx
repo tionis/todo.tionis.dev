@@ -64,7 +64,7 @@ function LandingPage() {
   const [sentEmail, setSentEmail] = useState("");
 
   return (
-    <div className="font-mono min-h-screen bg-background flex justify-center items-center flex-col space-y-8">
+    <div className="font-mono min-h-screen bg-gray-50 dark:bg-slate-900 flex justify-center items-center flex-col space-y-8">
       <div className="text-center space-y-4">
         <h1 className="tracking-wide text-6xl text-gray-300">Smart Todos</h1>
         <p className="text-xl text-gray-500">Collaborative todo lists with sublists and permissions</p>
@@ -242,7 +242,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   };
 
   return (
-    <div className="font-mono min-h-screen p-8">
+    <div className="font-mono min-h-screen p-8 bg-gray-50 dark:bg-slate-900">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
