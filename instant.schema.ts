@@ -37,6 +37,7 @@ const _schema = i.schema({
       order: i.number().indexed(),
     }),
     todoLists: i.entity({
+      archivedAt: i.date().indexed().optional(),
       autoSortTodos: i.boolean().optional(),
       classifierAggressiveness: i.string().optional(),
       classifierResetAt: i.date().optional(),

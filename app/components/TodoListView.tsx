@@ -783,6 +783,7 @@ function TodoListApp({
             <div className="flex items-center space-x-4">
               <OnlineUsersTooltip currentUser={user} peers={peers} numUsers={numUsers} myPresence={myPresence}/>
               <span>Permission: {todoList.permission}</span>
+              {todoList.archivedAt && <span className="text-amber-700 dark:text-amber-300">Archived</span>}
               {parseListTags(todoList.tags).map((tag) => (
                 <span
                   key={tag}
@@ -794,6 +795,12 @@ function TodoListApp({
               {currentUserPinId && <span>Pinned</span>}
             </div>
           </div>
+
+          {todoList.archivedAt && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 px-4 py-3 rounded-lg w-full max-w-2xl text-sm">
+              This list is archived. It is hidden from the default dashboard but remains accessible by URL.
+            </div>
+          )}
 
           {showSettings && isOwner && (
             <SettingsPanel todoList={todoList} user={user} onClose={() => setShowSettings(false)} addToast={addToast} />
@@ -1210,6 +1217,26 @@ function SettingsPanel({
     });
   };
 
+  const handleArchiveToggle = async () => {
+    const now = new Date().toISOString();
+
+    try {
+      await db.transact(
+        db.tx.todoLists[todoList.id].update({
+          archivedAt: todoList.archivedAt ? null : now,
+          updatedAt: now,
+        })
+      );
+      addToast(todoList.archivedAt ? "List restored" : "List archived", "success");
+      onClose();
+    } catch (err) {
+      console.error("Failed to update archive state:", err);
+      setShowError(todoList.archivedAt
+        ? "Failed to restore list. Please try again."
+        : "Failed to archive list. Please try again.");
+    }
+  };
+
   return (
     <Modal onClose={onClose} title="List Settings" maxWidth="lg">
       {showError && (
@@ -1295,6 +1322,27 @@ function SettingsPanel({
       {/* Danger Zone */}
       <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
         <h4 className="text-sm font-medium text-red-600 dark:text-red-400 mb-3">Advanced Actions</h4>
+
+        <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4">
+          <div className="flex items-start space-x-3">
+            <div className="flex-1">
+              <h5 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">
+                {todoList.archivedAt ? "Restore this list" : "Archive this list"}
+              </h5>
+              <p className="text-xs text-gray-700 dark:text-gray-400 mb-3">
+                {todoList.archivedAt
+                  ? "Restore this list to the default dashboard view."
+                  : "Hide this list from the default dashboard without deleting its todos, categories, members, or settings."}
+              </p>
+              <button
+                onClick={handleArchiveToggle}
+                className="text-sm bg-gray-700 text-white py-2 px-4 rounded hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors"
+              >
+                {todoList.archivedAt ? "Restore List" : "Archive List"}
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
           <div className="flex items-start space-x-3">

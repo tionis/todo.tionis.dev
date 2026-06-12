@@ -107,6 +107,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: any} | null>(null);
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const { isLoading: listsLoading, error: listsError, data: listsData } = db.useQuery({
     todoLists: {
@@ -168,16 +169,19 @@ function AuthenticatedApp({ user }: { user: User }) {
     return [{ ...list, pinId: pin.id, pinnedAt: pin.createdAt }];
   });
   const dashboardLists = [...ownAndMemberLists, ...pinnedLists];
+  const activeLists = dashboardLists.filter((list) => !list.archivedAt);
+  const archivedLists = dashboardLists.filter((list) => !!list.archivedAt);
+  const selectedDashboardLists = showArchived ? archivedLists : activeLists;
   const allTags = Array.from(
     new Map(
-      dashboardLists
+      selectedDashboardLists
         .flatMap((list) => parseListTags(list.tags))
         .map((tag) => [tag.toLowerCase(), tag])
     ).values()
   ).sort((a, b) => a.localeCompare(b));
   const visibleDashboardLists = activeTag
-    ? dashboardLists.filter((list) => parseListTags(list.tags).some((tag) => tag.toLowerCase() === activeTag.toLowerCase()))
-    : dashboardLists;
+    ? selectedDashboardLists.filter((list) => parseListTags(list.tags).some((tag) => tag.toLowerCase() === activeTag.toLowerCase()))
+    : selectedDashboardLists;
 
   const createNewList = async ({ name, sourceListId, tags, options }: CreateListPayload) => {
     const slug = generateSlug();
@@ -217,6 +221,26 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   };
 
+  const setListArchived = async (list: any, archived: boolean) => {
+    const now = new Date().toISOString();
+    const success = await executeTransaction(
+      db.tx.todoLists[list.id].update({
+        archivedAt: archived ? now : null,
+        updatedAt: now,
+      }),
+      archived ? "Failed to archive list" : "Failed to restore list"
+    );
+
+    if (!success) {
+      setShowErrorModal({
+        show: true,
+        message: archived
+          ? "Failed to archive list. Please try again."
+          : "Failed to restore list. Please try again.",
+      });
+    }
+  };
+
   return (
     <div className="font-mono min-h-screen p-8">
       <div className="max-w-4xl mx-auto">
@@ -252,6 +276,31 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         </div>
 
+        {dashboardLists.length > 0 && (
+          <div className="mb-6 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowArchived(false);
+                setActiveTag(null);
+              }}
+              className={`px-3 py-1 text-sm rounded border ${!showArchived ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"}`}
+            >
+              Active ({activeLists.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowArchived(true);
+                setActiveTag(null);
+              }}
+              className={`px-3 py-1 text-sm rounded border ${showArchived ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"}`}
+            >
+              Archived ({archivedLists.length})
+            </button>
+          </div>
+        )}
+
         {allTags.length > 0 && (
           <div className="mb-6 flex flex-wrap items-center gap-2">
             <button
@@ -286,12 +335,21 @@ function AuthenticatedApp({ user }: { user: User }) {
           </div>
         ) : visibleDashboardLists.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500 mb-4">No lists tagged "{activeTag}".</p>
+            <p className="text-gray-500 mb-4">
+              {activeTag
+                ? `No ${showArchived ? "archived" : "active"} lists tagged "${activeTag}".`
+                : showArchived
+                  ? "You don't have any archived lists."
+                  : "You don't have any active lists."}
+            </p>
             <button
-              onClick={() => setActiveTag(null)}
+              onClick={() => {
+                setActiveTag(null);
+                if (!activeTag && showArchived) setShowArchived(false);
+              }}
               className="px-6 py-3 bg-gray-600 text-white rounded hover:bg-gray-700"
             >
-              Show All Lists
+              {activeTag ? "Show All Lists" : "Show Active Lists"}
             </button>
           </div>
         ) : (
@@ -302,6 +360,8 @@ function AuthenticatedApp({ user }: { user: User }) {
                 list={list} 
                 user={user} 
                 onDelete={(list) => setShowDeleteModal({show: true, list})}
+                onArchive={(list) => setListArchived(list, true)}
+                onRestore={(list) => setListArchived(list, false)}
                 onUnpin={async (pinId) => {
                   const success = await executeTransaction(
                     db.tx.pinnedLists[pinId].delete(),
@@ -354,17 +414,22 @@ function TodoListCard({
   list, 
   user,
   onDelete,
+  onArchive,
+  onRestore,
   onUnpin
 }: { 
   list: any; 
   user: User;
   onDelete: (list: any) => void;
+  onArchive: (list: any) => void;
+  onRestore: (list: any) => void;
   onUnpin: (pinId: string) => void;
 }) {
   const [showShareModal, setShowShareModal] = useState(false);
   
   const isOwner = list.owner && list.owner.id === user.id;
   const isPinned = !!list.pinId;
+  const isArchived = !!list.archivedAt;
   const totalTodos = list.todos.length;
   const completedTodos = list.todos.filter((todo: any) => todo.done).length;
   const remainingTodos = totalTodos - completedTodos;
@@ -403,13 +468,22 @@ function TodoListCard({
             </button>
           )}
           {isOwner && !isPinned && (
-            <button
-              onClick={deleteList}
-              className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm"
-              title="Delete"
-            >
-              🗑️
-            </button>
+            <>
+              <button
+                onClick={() => isArchived ? onRestore(list) : onArchive(list)}
+                className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 text-sm"
+                title={isArchived ? "Restore" : "Archive"}
+              >
+                {isArchived ? "Restore" : "Archive"}
+              </button>
+              <button
+                onClick={deleteList}
+                className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-sm"
+                title="Delete"
+              >
+                🗑️
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -417,6 +491,9 @@ function TodoListCard({
       <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
         <p>{remainingTodos} remaining, {completedTodos} completed</p>
         <p>Permission: {list.permission}</p>
+        {isArchived && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">Archived</p>
+        )}
         {parseListTags(list.tags).length > 0 && (
           <div className="flex flex-wrap gap-1 pt-1">
             {parseListTags(list.tags).map((tag) => (
