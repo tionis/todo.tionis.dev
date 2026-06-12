@@ -24,6 +24,7 @@ export type ClassifierAggressiveness = "conservative" | "normal" | "aggressive";
 
 export interface ClassificationOptions {
   aggressiveness?: ClassifierAggressiveness | string | null;
+  resetAt?: string | number | null;
 }
 
 export interface ClassificationCandidate {
@@ -188,7 +189,7 @@ export function classifyTodoText(
   options: ClassificationOptions = {},
 ): ClassificationResult | null {
   const knownSublistIds = new Set(sublists.map((sublist) => sublist.id));
-  const model = buildClassifierModel(sublists, todos, samples, knownSublistIds);
+  const model = buildClassifierModel(sublists, todos, samples, knownSublistIds, options.resetAt);
   const categories = new Set(model.positiveExamples.map((example) => example.sublistId));
 
   if (model.positiveExamples.length < MIN_TOTAL_EXAMPLES || categories.size < MIN_CATEGORIES) {
@@ -232,7 +233,7 @@ export function getClassificationCandidates(
   options: ClassificationOptions = {},
 ): ClassificationCandidate[] {
   const knownSublistIds = new Set(sublists.map((sublist) => sublist.id));
-  const model = buildClassifierModel(sublists, todos, samples, knownSublistIds);
+  const model = buildClassifierModel(sublists, todos, samples, knownSublistIds, options.resetAt);
   const categories = new Set(model.positiveExamples.map((example) => example.sublistId));
 
   if (model.positiveExamples.length < MIN_TOTAL_EXAMPLES || categories.size < MIN_CATEGORIES) {
@@ -305,7 +306,7 @@ export function getClassifierStatus(
   options: ClassificationOptions = {},
 ): ClassifierStatus {
   const knownSublistIds = new Set(sublists.map((sublist) => sublist.id));
-  const model = buildClassifierModel(sublists, todos, samples, knownSublistIds);
+  const model = buildClassifierModel(sublists, todos, samples, knownSublistIds, options.resetAt);
   const examples = model.positiveExamples;
   const categories = new Set(examples.map((example) => example.sublistId));
   const categoryCountMap = examples.reduce<Map<string, number>>((counts, example) => {
@@ -341,6 +342,7 @@ function buildClassifierModel(
   todos: ClassificationTodo[],
   samples: ClassificationSample[],
   knownSublistIds: Set<string>,
+  resetAt?: string | number | null,
 ): ClassifierModel {
   const completedExamplesByText = new Map<string, TrainingExample>();
   const fallbackExamplesByText = new Map<string, TrainingExample>();
@@ -350,6 +352,7 @@ function buildClassifierModel(
 
   for (const todo of todos) {
     if (!todo.done || !todo.sublist?.id || !knownSublistIds.has(todo.sublist.id)) continue;
+    if (!isAfterReset(todo.updatedAt || todo.createdAt, resetAt)) continue;
     const example = toTrainingExample(todo.text, todo.sublist.id, false, "checked-todo", todo.updatedAt || todo.createdAt);
     if (!example) continue;
     sourceCounts["checked-todo"] = (sourceCounts["checked-todo"] || 0) + 1;
@@ -358,6 +361,7 @@ function buildClassifierModel(
 
   for (const sample of samples) {
     const source = sample.source || "unknown";
+    if (!isAfterReset(sample.createdAt, resetAt)) continue;
     sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     if (!sample.sublist?.id || !knownSublistIds.has(sample.sublist.id)) continue;
 
@@ -445,6 +449,14 @@ function timestampValue(value?: string | number): number {
 
   const timestamp = new Date(value).getTime();
   return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function isAfterReset(value?: string | number | null, resetAt?: string | number | null): boolean {
+  if (!resetAt) {
+    return true;
+  }
+
+  return timestampValue(value || undefined) > timestampValue(resetAt);
 }
 
 export function parseClassifierKeywords(value?: string | null): string[] {

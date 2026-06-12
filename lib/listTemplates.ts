@@ -39,6 +39,7 @@ export interface TemplateList {
   hideCompleted?: boolean | null;
   autoSortTodos?: boolean | null;
   classifierAggressiveness?: string | null;
+  classifierResetAt?: string | Date | null;
   tags?: string | null;
   sublists?: TemplateSublist[];
   todos?: TemplateTodo[];
@@ -71,6 +72,17 @@ function sortTodos(todos: TemplateTodo[] = []) {
 
 function getSublistKey(name: string) {
   return name.trim().toLowerCase();
+}
+
+function timestampValue(value?: string | Date | null): number {
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function isAfterReset(value?: string | Date | null, resetAt?: string | Date | null): boolean {
+  if (!resetAt) return true;
+  return timestampValue(value) > timestampValue(resetAt);
 }
 
 function createTemplateContentTransactions({
@@ -135,6 +147,7 @@ function createTemplateContentTransactions({
 
   if (options.classifier) {
     (sourceList.todoClassifications || []).forEach((sample) => {
+      if (!isAfterReset(sample.createdAt, sourceList.classifierResetAt)) return;
       const targetSublistId = sample.sublist?.id ? sublistIdMap.get(sample.sublist.id) : undefined;
       if (!targetSublistId) return;
 
