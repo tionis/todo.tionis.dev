@@ -1,0 +1,45 @@
+---
+name: Deploy website
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-site-production
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build website
+        run: |
+          npm ci
+          npm run build
+      - name: Deploy to Bunny
+        if: github.event_name != 'pull_request'
+        env:
+          BUNNY_STORAGE_ZONE: todo-tionis-dev
+          BUNNY_STORAGE_ENDPOINT: storage.bunnycdn.com
+          BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+          BUNNY_PURGE_ENDPOINT: https://tionis-static-site-purge.bunny.run
+        run: |
+          curl -fsSL \
+            https://forge.tionis.dev/actions/static-site-deploy/raw/commit/86964aa187a7cc6519ed9bf45f1e9f0999fd7bf8/static_site.py \
+            -o /tmp/static-site.py
+          echo '5f9a3e8ca730803ab5d83a58b2d972ae97ba5424fa113a0ff011775b2638ec2e  /tmp/static-site.py' |
+            sha256sum --check
+          python3 /tmp/static-site.py bunny out
