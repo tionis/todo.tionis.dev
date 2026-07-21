@@ -40,6 +40,6 @@ jobs:
           curl -fsSL \
             https://forge.tionis.dev/actions/static-site-deploy/raw/commit/dec3f970f3da3d9c4b42ed51904b9474da4a4a86/static_site.py \
             -o /tmp/static-site.py
-          echo '5f9a3e8ca730803ab5d83a58b2d972ae97ba5424fa113a0ff011775b2638ec2e  /tmp/static-site.py' |
+          echo '1b1a8b3ba3730e9afeda8069fb9495b3362aaad722e99201505559cebc005794  /tmp/static-site.py' |
             sha256sum --check
           python3 /tmp/static-site.py bunny out
