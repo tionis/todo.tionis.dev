@@ -38,8 +38,8 @@ jobs:
           BUNNY_PURGE_ENDPOINT: https://gandalf.tionis.dev
         run: |
           curl -fsSL \
-            https://forge.tionis.dev/actions/static-site-deploy/raw/commit/dec3f970f3da3d9c4b42ed51904b9474da4a4a86/static_site.py \
+            https://forge.tionis.dev/actions/static-site-deploy/raw/commit/411010ef5a09ee576a9a30445d7931d32eabf94f/static_site.py \
             -o /tmp/static-site.py
-          echo '1b1a8b3ba3730e9afeda8069fb9495b3362aaad722e99201505559cebc005794  /tmp/static-site.py' |
+          echo '58e435c273bae160839b70beb91ab3772800d589655021b3336d9172a272e8a9  /tmp/static-site.py' |
             sha256sum --check
           python3 /tmp/static-site.py bunny out
