@@ -7,9 +7,24 @@ export default function ServiceWorkerRegistration() {
   const [newWorker, setNewWorker] = useState<ServiceWorker | null>(null);
 
   useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    // A production service worker left behind on localhost can otherwise serve
+    // stale application or authentication responses while running Next dev.
+    if (process.env.NODE_ENV === 'development') {
+      void navigator.serviceWorker.getRegistrations().then((registrations) =>
+        Promise.all(registrations.map((registration) => registration.unregister()))
+      );
+      if ('caches' in window) {
+        void caches.keys().then((names) => Promise.all(
+          names.filter((name) => name.startsWith('smart-todos-')).map((name) => caches.delete(name))
+        ));
+      }
+      return;
+    }
+
     // Register service worker for offline functionality
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
+    navigator.serviceWorker.register('/sw.js')
         .then((registration) => {
           console.log('Service Worker registered successfully');
           
@@ -36,7 +51,6 @@ export default function ServiceWorkerRegistration() {
         // Reload the page to get the latest version
         window.location.reload();
       });
-    }
   }, []);
 
   const handleUpdate = () => {
