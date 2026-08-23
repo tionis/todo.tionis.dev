@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { User } from "@instantdb/react";
-import { db } from "../lib/db";
+import { db, type User } from "../lib/db";
 import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
 import { executeTransaction } from "../lib/transactions";
 import { buildCreateListFromTemplateTransactions, type TemplateCopyOptions } from "../lib/listTemplates";
 import { parseListTags, tagInputToList } from "../lib/tags";
+import { buildListImportTransactions } from "../lib/listImport";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
@@ -61,8 +61,6 @@ function App() {
 }
 
 function LandingPage() {
-  const [sentEmail, setSentEmail] = useState("");
-
   return (
     <div className="font-mono min-h-screen bg-gray-50 dark:bg-slate-900 flex justify-center items-center flex-col space-y-8">
       <div className="text-center space-y-4">
@@ -76,11 +74,12 @@ function LandingPage() {
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 text-center">
             Create and manage your todo lists with real-time collaboration
           </p>
-          {!sentEmail ? (
-            <EmailStep onSendEmail={setSentEmail} />
-          ) : (
-            <CodeStep sentEmail={sentEmail} />
-          )}
+          <button
+            onClick={() => db.auth.signIn()}
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            Sign in with OIDC
+          </button>
         </div>
       </div>
 
@@ -108,6 +107,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const importInputRef = React.useRef<HTMLInputElement>(null);
 
   const { isLoading: listsLoading, error: listsError, data: listsData } = db.useQuery({
     todoLists: {
@@ -241,6 +241,22 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   };
 
+  const importListExport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const exported = JSON.parse(await file.text());
+      const slug = generateSlug();
+      const { transactions } = buildListImportTransactions(exported, user.id, slug);
+      await db.transact(transactions);
+      window.location.hash = `/list/${slug}`;
+    } catch (error) {
+      console.error("Failed to import list export:", error);
+      setShowErrorModal({ show: true, message: error instanceof Error ? error.message : "Failed to import this export." });
+    }
+  };
+
   return (
     <div className="font-mono min-h-screen p-8 bg-gray-50 dark:bg-slate-900">
       <div className="max-w-4xl mx-auto">
@@ -250,6 +266,19 @@ function AuthenticatedApp({ user }: { user: User }) {
             <p className="text-gray-500">Welcome back, {user.email}</p>
           </div>
           <div className="flex space-x-3">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={importListExport}
+            />
+            <button
+              onClick={() => importInputRef.current?.click()}
+              className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+            >
+              Import Export
+            </button>
             <button
               onClick={() => window.location.hash = '/invitations'}
               className="relative px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
@@ -590,105 +619,6 @@ function ShareModal({
         </button>
       </div>
     </Modal>
-  );
-}
-
-function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const email = inputRef.current!.value;
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await db.auth.sendMagicCode({ email });
-      onSendEmail(email);
-    } catch (err: any) {
-      setError("Error sending code: " + (err.body?.message || err.message));
-      onSendEmail("");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
-          {error}
-        </div>
-      )}
-      <div>
-        <input
-          ref={inputRef}
-          type="email"
-          required
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-          placeholder="Enter your email"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      >
-        {isLoading ? "Sending..." : "Send Magic Code"}
-      </button>
-    </form>
-  );
-}
-
-function CodeStep({ sentEmail }: { sentEmail: string }) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const code = inputRef.current!.value;
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await db.auth.signInWithMagicCode({ email: sentEmail, code });
-    } catch (err: any) {
-      setError("Error signing in: " + (err.body?.message || err.message));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
-          {error}
-        </div>
-      )}
-      <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-          Enter the code sent to {sentEmail}
-        </p>
-        <input
-          ref={inputRef}
-          type="text"
-          required
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-          placeholder="Enter verification code"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      >
-        {isLoading ? "Signing in..." : "Sign In"}
-      </button>
-    </form>
   );
 }
 

@@ -1,6 +1,6 @@
-const CACHE_NAME = 'smart-todos-v1';
-const STATIC_CACHE_NAME = 'smart-todos-static-v1';
-const DYNAMIC_CACHE_NAME = 'smart-todos-dynamic-v1';
+const CACHE_NAME = 'smart-todos-v2';
+const STATIC_CACHE_NAME = 'smart-todos-static-v2';
+const DYNAMIC_CACHE_NAME = 'smart-todos-dynamic-v2';
 
 const staticAssets = [
   '/',
@@ -126,8 +126,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Handle InstantDB and external API requests (network-first with graceful fallback)
-  if (url.hostname.includes('instantdb.com') || url.pathname.startsWith('/api/')) {
+  // Authentication and list metadata are server-authoritative and network-only.
+  // Automerge list content is persisted separately in IndexedDB by the app.
+  if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
         .catch(() => {

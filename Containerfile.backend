@@ -1,0 +1,27 @@
+FROM node:20-bookworm-slim AS dependencies
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && npm ci --omit=dev \
+    && apt-get purge -y --auto-remove python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM node:20-bookworm-slim
+
+ENV NODE_ENV=production
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY backend ./backend
+RUN mkdir -p /data && chown -R node:node /data
+
+USER node
+ENV HOST=0.0.0.0 DATA_DIR=/data
+EXPOSE 3030
+CMD ["npm", "run", "start:backend"]

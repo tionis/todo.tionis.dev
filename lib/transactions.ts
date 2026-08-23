@@ -1,5 +1,5 @@
 import { db } from './db';
-import { id } from '@instantdb/react';
+import { id } from './id';
 
 /**
  * Execute a database transaction with error handling and optional toast notifications
@@ -60,6 +60,7 @@ export function canUserWrite(
   list: any,
   permission: string
 ): boolean {
+  if (typeof list.access?.write === "boolean") return list.access.write;
   if (!user) return permission === 'public-write';
   
   const isOwner = list.owner?.id === user.id;
@@ -85,6 +86,7 @@ export function canUserView(
   list: any,
   permission: string
 ): boolean {
+  if (typeof list.access?.read === "boolean") return list.access.read;
   if (permission === 'public-read' || permission === 'public-write') {
     return true;
   }

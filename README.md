@@ -1,79 +1,71 @@
-# Smart Todos - Collaborative Todo Lists
+# Smart Todos
 
-A modern, collaborative todo list application built with Next.js and InstantDB. Features real-time collaboration, sublists/categories, flexible permissions, offline support, and PWA installability.
+A local-first collaborative grocery todo app built with Next.js, React, Automerge, and Tailwind. List content is edited offline in the browser, persisted in IndexedDB, and merged in real time by a small dedicated backend. Authentication uses a configurable OpenID Connect provider.
 
-## Features
+## Architecture
 
-- **Real-time Collaboration**: Multiple users can work on the same todo list simultaneously
-- **Sublists/Categories**: Organize todos with sublists for better structure
-- **Flexible Permissions**: Public, private, or members-only lists with granular control
-- **Invitation System**: Invite collaborators via email with role-based permissions
-- **Offline Support**: Works offline with data synchronization when back online
-- **PWA Support**: Installable as a native app on mobile and desktop
-- **Dark Mode**: Automatically follows system theme preference
-- **Magic Link Authentication**: Secure, passwordless login system
+- The Next.js frontend remains a static export.
+- Each list is an Automerge document containing categories, todos, and classifier history.
+- Browser documents are stored in IndexedDB and changes remain available offline.
+- The backend persists canonical Automerge files and broadcasts merged documents over WebSockets.
+- SQLite stores server-authoritative users, sessions, list metadata, permissions, members, invitations, and pins.
+- OIDC Authorization Code Flow with PKCE is handled by the backend. Browser sessions use opaque, hashed, HttpOnly cookies.
 
-## Getting Started
+Read-only clients receive canonical documents but cannot upload changes. Write access is checked during the WebSocket upgrade and again before accepting document data. List permissions and membership are not stored in client-editable CRDT data.
 
-First, run the development server:
+## Development
+
+Install dependencies and create a backend environment file:
+
+```bash
+npm install
+cp backend/.env.example .env
+```
+
+Register `http://localhost:3030/api/auth/callback` as an allowed callback at your OIDC provider, then set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and (for confidential clients) `OIDC_CLIENT_SECRET`.
+
+Run the frontend and backend in separate terminals:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev:backend
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-## Icon Generation
-
-When you update the main SVG icons, you can regenerate all the required PNG sizes for the PWA:
+The default development origins are `http://localhost:3000` for the frontend and `http://localhost:3030` for the backend. Build the frontend with:
 
 ```bash
-# Generate all icon sizes from public/icon.svg
-npm run generate-icons
-
-# Generate screenshot images from SVG screenshots
-npm run generate-screenshots
-
-# Generate both icons and screenshots
-npm run generate-assets
+NEXT_PUBLIC_BACKEND_URL=http://localhost:3030 npm run build
 ```
 
-The `generate-icons` script creates:
-- App icons in sizes: 72x72, 96x96, 128x128, 144x144, 152x152, 192x192, 384x384, 512x512
-- Apple touch icon: 180x180
+## Production
 
-## Scripts
+Serve the static `out/` directory and reverse proxy `/api/*` plus `/sync` to the backend on the same public origin. Same-origin deployment is recommended because authentication uses secure HttpOnly cookies. Set both `APP_ORIGIN` and `PUBLIC_URL` to the public site origin when the backend is behind that proxy.
 
-- `npm run dev` - Start development server with Turbopack
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
-- `npm run generate-icons` - Generate PNG icons from SVG
-- `npm run generate-screenshots` - Generate PNG screenshots from SVG
-- `npm run generate-assets` - Generate all icons and screenshots
+The backend data directory contains `metadata.sqlite` and one `.automerge` file per list. Put `DATA_DIR` on persistent storage and back it up as a unit.
 
-## Tech Stack
+Required backend configuration:
 
-- **Frontend**: Next.js 15, React 19, TypeScript
-- **Database**: InstantDB (real-time database with built-in auth)
-- **Styling**: Tailwind CSS 4
-- **PWA**: Service Worker, Web App Manifest
-- **Deployment**: Vercel-ready
+| Variable | Purpose |
+| --- | --- |
+| `OIDC_ISSUER` | OIDC issuer URL used for discovery |
+| `OIDC_CLIENT_ID` | Registered relying-party client ID |
+| `OIDC_CLIENT_SECRET` | Client secret, when required by the provider |
+| `APP_ORIGIN` | Allowed browser origin |
+| `PUBLIC_URL` | Public backend URL used for the callback |
+| `DATA_DIR` | Persistent SQLite and Automerge storage |
 
-## Learn More
+See [backend/.env.example](backend/.env.example) for optional settings.
 
-- [Next.js Documentation](https://nextjs.org/docs)
-- [InstantDB Documentation](https://docs.instantdb.com/)
-- [PWA Documentation](https://web.dev/progressive-web-apps/)
+## Moving from the previous service
 
-## Deploy on Vercel
+Before the old service is retired, list owners can open **List Settings → Download Export**. In the Automerge version, use **Import Export** on the dashboard. Version 1 exports restore list settings, categories and keyword hints, todos with completion/order/timestamps, and the complete classifier history. Imports are private to the importing user by default; sharing must be configured again.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme).
+## Checks
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run test:backend
+npm run lint
+npm run build
+```
+
+PWA assets can be regenerated with `npm run generate-assets` (ImageMagick is required).
