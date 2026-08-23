@@ -8,8 +8,9 @@ A local-first collaborative grocery todo app built with Next.js, React, Automerg
 - Each list is an Automerge document containing categories, todos, and classifier history.
 - Browser documents are stored in IndexedDB and changes remain available offline.
 - The backend persists canonical Automerge files and broadcasts merged documents over WebSockets.
-- SQLite stores server-authoritative users, sessions, list metadata, permissions, members, invitations, and pins.
+- SQLite stores server-authoritative users, directory groups, sessions, list metadata, permissions, members, invitations, and pins.
 - OIDC Authorization Code Flow with PKCE is handled by the backend. Login transactions are bound to the initiating browser, and browser sessions use opaque, hashed, HttpOnly cookies. Invitation matching only uses email claims for which the provider returns `email_verified: true`.
+- An optional SCIM 2.0 service lets an identity provider provision users, friendly names, usernames, groups, activation state, and group membership before users log in.
 
 Read-only clients receive canonical documents but cannot upload changes. Write access is checked during the WebSocket upgrade and again before accepting document data. List permissions and membership are not stored in client-editable CRDT data.
 
@@ -38,6 +39,23 @@ NEXT_PUBLIC_BACKEND_URL=http://localhost:3030 npm run build
 ```
 
 After a same-origin production build, `npm start` serves both `out/` and the backend on the configured port.
+
+## Authentik directory provisioning
+
+OIDC remains the interactive login protocol. SCIM is an optional backchannel that provisions directory identities and groups into Smart Todos. Set a high-entropy `SCIM_TOKEN` of at least 32 bytes, then configure an Authentik SCIM provider with:
+
+- Base URL: `https://todo.example/scim/v2`
+- Authentication mode: static token
+- Token: the exact value of `SCIM_TOKEN`
+- Backchannel application: the same Authentik application used by the OIDC provider
+
+Keep the OIDC provider subject mode at Authentik's default **Based on the User's hashed ID**. That OIDC `sub` matches Authentik's default SCIM `externalId`, allowing a provisioned account to become the same account when it first logs in. If a different subject mode is required, customize the SCIM `externalId` mapping to emit the same immutable value.
+
+The backend implements Users, Groups, exact-match filtering, PUT updates, group-membership PATCH updates, deletion/deactivation, ServiceProviderConfig, ResourceTypes, and Schemas. Bulk operations and SCIM OAuth authentication are not advertised. Treat `SCIM_TOKEN` as an administrative provisioning credential and restrict `/scim/v2` to Authentik at the reverse proxy when possible.
+
+In the sharing dialog, owners can search provisioned users by friendly name, username, or email and provisioned groups by name. Users are added directly, groups receive a group grant, and unknown users can still receive verified-email invitations. Group grants behave like membership; the list's permission setting continues to decide whether members can write. List ownership always remains assigned to an individual account.
+
+SCIM deactivation revokes active sessions and group-derived access without deleting list ownership, direct memberships, or historical data. Group deletion revokes effective group access while retaining list-grant history for safe re-provisioning. An administrator should transfer lists owned by a deprovisioned account before permanently retiring that identity.
 
 ## Container deployment
 
@@ -100,6 +118,7 @@ APP_ORIGIN=https://todo.tionis.dev
 OIDC_ISSUER=https://your-provider.example/application/o/todo/
 OIDC_CLIENT_ID=smart-todos
 OIDC_CLIENT_SECRET=replace-me
+SCIM_TOKEN=replace-with-a-long-random-secret
 SECURE_COOKIES=true
 TRUST_PROXY=true
 ```
@@ -119,6 +138,7 @@ Required backend configuration:
 | `OIDC_ISSUER` | OIDC issuer URL used for discovery |
 | `OIDC_CLIENT_ID` | Registered relying-party client ID |
 | `OIDC_CLIENT_SECRET` | Client secret, when required by the provider |
+| `SCIM_TOKEN` | Optional bearer token enabling the `/scim/v2` provisioning API |
 | `APP_ORIGIN` | Allowed browser origin |
 | `PUBLIC_URL` | Public backend URL used for the callback |
 | `DATA_DIR` | Persistent SQLite and Automerge storage |

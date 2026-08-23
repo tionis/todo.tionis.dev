@@ -11,6 +11,13 @@ export function randomToken(bytes = 32) {
   return crypto.randomBytes(bytes).toString("base64url");
 }
 
+function ensureColumn(database, table, definition) {
+  const name = definition.split(/\s+/, 1)[0];
+  if (!database.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === name)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const database = new Database(path.join(dataDir, "metadata.sqlite"));
@@ -22,7 +29,11 @@ export function openDatabase(dataDir) {
       issuer TEXT NOT NULL,
       subject TEXT NOT NULL,
       email TEXT,
+      email_verified INTEGER NOT NULL DEFAULT 0,
       name TEXT,
+      username TEXT,
+      scim_external_id TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (issuer, subject)
@@ -82,6 +93,42 @@ export function openDatabase(dataDir) {
       created_at TEXT NOT NULL,
       UNIQUE (list_id, user_id)
     );
+    CREATE TABLE IF NOT EXISTS directory_groups (
+      id TEXT PRIMARY KEY,
+      external_id TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS directory_group_members (
+      group_id TEXT NOT NULL REFERENCES directory_groups(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (group_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS directory_group_members_user_id ON directory_group_members(user_id);
+    CREATE TABLE IF NOT EXISTS list_group_grants (
+      id TEXT PRIMARY KEY,
+      list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+      group_id TEXT NOT NULL REFERENCES directory_groups(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'member',
+      added_at TEXT NOT NULL,
+      UNIQUE (list_id, group_id)
+    );
+    CREATE INDEX IF NOT EXISTS list_group_grants_group_id ON list_group_grants(group_id);
+  `);
+
+  ensureColumn(database, "users", "username TEXT");
+  ensureColumn(database, "users", "scim_external_id TEXT");
+  ensureColumn(database, "users", "active INTEGER NOT NULL DEFAULT 1");
+  ensureColumn(database, "users", "email_verified INTEGER NOT NULL DEFAULT 0");
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS users_scim_external_id
+      ON users(scim_external_id) WHERE scim_external_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS users_active_username
+      ON users(username COLLATE NOCASE) WHERE active = 1 AND username IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS directory_groups_active_display_name
+      ON directory_groups(display_name COLLATE NOCASE) WHERE active = 1;
   `);
 
   database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
@@ -92,9 +139,9 @@ export function openDatabase(dataDir) {
 export function getUserForSession(database, rawToken) {
   if (!rawToken) return null;
   return database.prepare(`
-    SELECT users.id, users.email, users.name
+    SELECT users.id, users.email, users.email_verified AS emailVerified, users.name, users.username
     FROM sessions JOIN users ON users.id = sessions.user_id
-    WHERE sessions.token_hash = ? AND sessions.expires_at > ?
+    WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.active = 1
   `).get(hashToken(rawToken), Date.now()) || null;
 }
 
@@ -105,12 +152,24 @@ export function upsertOidcUser(database, issuer, claims) {
   ).get(issuer, claims.sub);
   const id = current?.id || crypto.randomUUID();
   database.prepare(`
-    INSERT INTO users (id, issuer, subject, email, name, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (id, issuer, subject, email, email_verified, name, username, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (issuer, subject) DO UPDATE SET
-      email = excluded.email,
-      name = excluded.name,
+      email = COALESCE(excluded.email, users.email),
+      email_verified = CASE WHEN excluded.email IS NOT NULL THEN 1 ELSE users.email_verified END,
+      name = COALESCE(excluded.name, users.name),
+      username = COALESCE(excluded.username, users.username),
       updated_at = excluded.updated_at
-  `).run(id, issuer, claims.sub, claims.email || null, claims.name || claims.preferred_username || null, now, now);
-  return database.prepare("SELECT id, email, name FROM users WHERE id = ?").get(id);
+  `).run(
+    id,
+    issuer,
+    claims.sub,
+    claims.email || null,
+    claims.email ? 1 : 0,
+    claims.name || null,
+    claims.preferred_username || null,
+    now,
+    now,
+  );
+  return database.prepare("SELECT id, email, email_verified AS emailVerified, name, username, active FROM users WHERE id = ?").get(id);
 }

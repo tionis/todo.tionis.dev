@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { id } from "../../lib/id";
 import { db } from "../../lib/db";
 import { getListUrl } from "../../lib/utils";
+import { userDisplayName } from "../../shared/identity.mjs";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
 
@@ -200,7 +201,7 @@ export default function InvitationsView({}: InvitationsViewProps) {
         {/* User Info */}
         <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Signed in as: <span className="font-medium text-gray-900 dark:text-white">{user?.email}</span>
+            Signed in as: <span className="font-medium text-gray-900 dark:text-white">{userDisplayName(user)}</span>
           </p>
         </div>
 
@@ -246,7 +247,7 @@ export default function InvitationsView({}: InvitationsViewProps) {
                         <span className="font-medium">Invited by:</span>{' '}
                         {(() => {
                           const inviterUser = Array.isArray(invitation.inviter) ? invitation.inviter[0] : invitation.inviter;
-                          return inviterUser?.email || 'Unknown';
+                          return userDisplayName(inviterUser);
                         })()}
                       </p>
                       <p>

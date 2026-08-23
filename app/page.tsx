@@ -7,6 +7,7 @@ import { executeTransaction } from "../lib/transactions";
 import { buildCreateListFromTemplateTransactions, type TemplateCopyOptions } from "../lib/listTemplates";
 import { parseListTags, tagInputToList } from "../lib/tags";
 import { buildListImportTransactions, MAX_IMPORT_FILE_BYTES } from "../lib/listImport";
+import { userDisplayName } from "../shared/identity.mjs";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
@@ -264,7 +265,7 @@ function AuthenticatedApp({ user }: { user: User }) {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="tracking-wide text-4xl text-gray-300 mb-2">Your Todo Lists</h1>
-            <p className="text-gray-500">Welcome back, {user.email}</p>
+            <p className="text-gray-500">Welcome back, {userDisplayName(user)}</p>
           </div>
           <div className="flex space-x-3">
             <input

@@ -103,7 +103,17 @@ export async function finishLogin(database, config, callbackUrl, browserBinding)
   });
   const claims = tokens.claims();
   if (!claims?.sub) throw new Error("OIDC provider did not return a subject claim");
-  const user = upsertOidcUser(database, config.oidc.issuer.href, verifiedIdentityClaims(claims));
+  let identityClaims = claims;
+  if (tokens.access_token) {
+    try {
+      const userInfo = await oidc.fetchUserInfo(configuration, tokens.access_token, claims.sub);
+      identityClaims = { ...claims, ...userInfo, sub: claims.sub };
+    } catch (error) {
+      console.warn("OIDC UserInfo request failed; using ID token claims", error);
+    }
+  }
+  const user = upsertOidcUser(database, config.oidc.issuer.href, verifiedIdentityClaims(identityClaims));
+  if (!user.active) throw Object.assign(new Error("This account has been deprovisioned"), { status: 403 });
   const sessionToken = randomToken();
   const expiresAt = Date.now() + config.sessionDays * 86_400_000;
   database.prepare(
