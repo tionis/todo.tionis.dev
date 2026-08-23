@@ -155,9 +155,11 @@ Before the old service is retired, list owners can open **List Settings → Down
 ## Checks
 
 ```bash
-npm run test:backend
+npm test
 npm run lint
 npm run build
 ```
+
+`npm test` runs the backend integration suite plus TypeScript-level transaction-builder tests. The container workflow requires all three checks to pass before publishing an image.
 
 PWA assets can be regenerated with `npm run generate-assets` (ImageMagick is required).

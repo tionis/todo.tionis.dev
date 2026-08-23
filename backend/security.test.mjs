@@ -6,6 +6,7 @@ import test from "node:test";
 import { accessFor } from "./access.mjs";
 import { openDatabase } from "./database.mjs";
 import { consumeInvitation } from "./invitations.mjs";
+import { transferListOwnership } from "./ownership.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 
 test("public outsiders cannot receive membership identities", () => {
@@ -42,6 +43,60 @@ test("an invitation is consumed once and cannot restore revoked membership", asy
       (error) => error.status === 409,
     );
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM members WHERE user_id = 'invitee'").get().count, 0);
+  } finally {
+    database.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("declining an invitation never creates membership", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "smart-todos-invitations-"));
+  const database = openDatabase(directory);
+  try {
+    const now = new Date().toISOString();
+    database.prepare("INSERT INTO users (id, issuer, subject, email, created_at, updated_at) VALUES ('owner', 'issuer', 'owner', 'owner@example.com', ?, ?)").run(now, now);
+    database.prepare("INSERT INTO users (id, issuer, subject, email, created_at, updated_at) VALUES ('invitee', 'issuer', 'invitee', 'invitee@example.com', ?, ?)").run(now, now);
+    database.prepare("INSERT INTO lists (id, owner_id, name, slug, permission, created_at, updated_at) VALUES ('list-1', 'owner', 'List', 'list', 'private-write', ?, ?)").run(now, now);
+    database.prepare("INSERT INTO invitations (id, list_id, inviter_id, email, role, status, invited_at) VALUES ('invite-1', 'list-1', 'owner', 'invitee@example.com', 'member', 'pending', ?)").run(now);
+
+    consumeInvitation(database, database.prepare("SELECT * FROM invitations WHERE id = 'invite-1'").get(), "invitee", "declined", now);
+    assert.equal(database.prepare("SELECT status FROM invitations WHERE id = 'invite-1'").get().status, "declined");
+    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM members WHERE user_id = 'invitee'").get().count, 0);
+  } finally {
+    database.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ownership transfer swaps owner membership and rolls back completely on failure", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "smart-todos-ownership-"));
+  const database = openDatabase(directory);
+  try {
+    const now = new Date().toISOString();
+    const insertUser = database.prepare("INSERT INTO users (id, issuer, subject, active, created_at, updated_at) VALUES (?, 'issuer', ?, 1, ?, ?)");
+    insertUser.run("owner", "owner", now, now);
+    insertUser.run("member", "member", now, now);
+    insertUser.run("other", "other", now, now);
+    database.prepare("INSERT INTO lists (id, owner_id, name, slug, permission, created_at, updated_at) VALUES ('list-1', 'owner', 'List', 'list', 'private-write', ?, ?)").run(now, now);
+    database.prepare("INSERT INTO members (id, list_id, user_id, role, added_at) VALUES ('member-row', 'list-1', 'member', 'member', ?)").run(now);
+
+    transferListOwnership(database, { listId: "list-1", currentOwnerId: "owner", newOwnerId: "member", now, createId: () => "former-owner-row" });
+    assert.equal(database.prepare("SELECT owner_id FROM lists WHERE id = 'list-1'").get().owner_id, "member");
+    assert.deepEqual(database.prepare("SELECT id, user_id FROM members WHERE list_id = 'list-1'").all(), [{ id: "former-owner-row", user_id: "owner" }]);
+
+    database.prepare("INSERT INTO members (id, list_id, user_id, role, added_at) VALUES ('conflict-row', 'list-1', 'other', 'member', ?)").run(now);
+    assert.throws(() => transferListOwnership(database, {
+      listId: "list-1",
+      currentOwnerId: "member",
+      newOwnerId: "owner",
+      now,
+      createId: () => "conflict-row",
+    }), /UNIQUE constraint failed/);
+    assert.equal(database.prepare("SELECT owner_id FROM lists WHERE id = 'list-1'").get().owner_id, "member");
+    assert.deepEqual(database.prepare("SELECT id, user_id FROM members WHERE list_id = 'list-1' ORDER BY id").all(), [
+      { id: "conflict-row", user_id: "other" },
+      { id: "former-owner-row", user_id: "owner" },
+    ]);
   } finally {
     database.close();
     await fs.rm(directory, { recursive: true, force: true });

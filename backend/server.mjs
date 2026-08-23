@@ -16,6 +16,7 @@ import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
 import { DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
 import { rankDirectoryEntries } from "./directory-search.mjs";
 import { consumeInvitation } from "./invitations.mjs";
+import { transferListOwnership } from "./ownership.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 import { createFixedWindowRateLimiter } from "./rate-limit.mjs";
 import { handleScimRequest } from "./scim.mjs";
@@ -489,17 +490,7 @@ async function handleApi(request, response, url) {
     const row = listRowById(listId);
     if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can transfer this list");
     const body = await readJson(request);
-    const newOwnerMembership = database.prepare(
-      "SELECT members.id FROM members JOIN users ON users.id = members.user_id WHERE members.list_id = ? AND members.user_id = ? AND users.active = 1"
-    ).get(listId, body.userId);
-    if (!newOwnerMembership) return fail(response, 400, "The new owner must already be a list member");
-    database.transaction(() => {
-      database.prepare("DELETE FROM members WHERE id = ?").run(newOwnerMembership.id);
-      database.prepare("UPDATE lists SET owner_id = ?, updated_at = ? WHERE id = ?")
-        .run(body.userId, new Date().toISOString(), listId);
-      database.prepare("INSERT INTO members (id, list_id, user_id, role, added_at) VALUES (?, ?, ?, 'member', ?)")
-        .run(crypto.randomUUID(), listId, user.id, new Date().toISOString());
-    })();
+    transferListOwnership(database, { listId, currentOwnerId: user.id, newOwnerId: body.userId });
     refreshListConnections(listId);
     json(response, 200, { ok: true });
     return;

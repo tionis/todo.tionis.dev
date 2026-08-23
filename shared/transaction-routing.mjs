@@ -16,6 +16,29 @@ export function explicitListId(operation, associations) {
 
 const CONTENT_ENTITIES = new Set(["todos", "sublists", "todoClassifications"]);
 
+export function withoutRedundantListContentDeletes(operations) {
+  const deletesList = operations.some((operation) => operation.entity === "todoLists" && operation.kind === "delete");
+  if (!deletesList) return operations;
+  const unsafeContent = operations.find((operation) => CONTENT_ENTITIES.has(operation.entity) && operation.kind !== "delete");
+  if (unsafeContent) throw new Error("List deletion cannot be combined with content updates");
+  return operations.filter((operation) => !(CONTENT_ENTITIES.has(operation.entity) && operation.kind === "delete"));
+}
+
+export function classifierResetPlan(operations) {
+  const reset = operations.find((operation) => operation.entity === "todoLists"
+    && operation.kind === "update" && operation.data?.classifierResetAt);
+  if (!reset) return null;
+  const resetFields = Object.keys(reset.data || {});
+  if (resetFields.some((field) => !["classifierResetAt", "updatedAt"].includes(field))) {
+    throw new Error("Classifier reset cannot include other list settings");
+  }
+  const allowed = operations.every((operation) => operation === reset
+    || (operation.entity === "todoClassifications" && operation.kind === "delete"));
+  if (!allowed) throw new Error("Classifier reset cannot be combined with other changes");
+  if (!operations.some((operation) => operation.entity === "todoClassifications" && operation.kind === "delete")) return null;
+  return { listId: reset.id };
+}
+
 export function groupContentOperations(operations, associations, findExistingListId) {
   const grouped = new Map();
   for (const operation of operations) {

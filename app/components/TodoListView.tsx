@@ -40,6 +40,11 @@ import { executeTransaction, canUserWrite, canUserView, transferListOwnership } 
 import { buildImportTemplateTransactions } from "../../lib/listTemplates";
 import { downloadListExport } from "../../lib/listExport";
 import { formatListTags, parseListTags, tagInputToList } from "../../lib/tags";
+import {
+  createClassificationTransaction,
+  createTodoDeleteTransactions,
+  createTodoTransaction,
+} from "../../lib/todoTransactions";
 import { userDisplayName } from "../../shared/identity.mjs";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
@@ -83,34 +88,6 @@ interface CreateTodoResult {
   suggestedClassification: ClassificationResult | null;
 }
 
-function createClassificationTransaction(
-  listId: string,
-  sublistId: string,
-  text: string,
-  source: string,
-) {
-  return db.tx.todoClassifications[id()]
-    .update({
-      text,
-      normalizedText: normalizeItemText(text),
-      source,
-      createdAt: new Date().toISOString(),
-    })
-    .link({ list: listId, sublist: sublistId });
-}
-
-function createTodoDeleteTransactions(listId: string, todos: Todo[]) {
-  const archiveTransactions = todos.flatMap((todo) => {
-    if (!todo.sublist?.id) return [];
-    return [createClassificationTransaction(listId, todo.sublist.id, todo.text, "deleted")];
-  });
-
-  return [
-    ...archiveTransactions,
-    ...todos.map((todo) => db.tx.todos[todo.id].delete()),
-  ];
-}
-
 function createTodoTransactions(
   todoList: TodoList,
   text: string,
@@ -137,21 +114,7 @@ function createTodoTransactions(
   const sublistId = explicitSublistId || (shouldAutoSort ? classification?.sublistId : undefined);
   const source = explicitSublistId ? explicitSource : "auto";
 
-  let todoTx = db.tx.todos[id()]
-    .update({
-      text,
-      done: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      order: maxOrder + 1,
-    })
-    .link({ list: todoList.id });
-
-  if (sublistId) {
-    todoTx = todoTx.link({ sublist: sublistId });
-  }
-
-  const transactions: any[] = [todoTx];
+  const transactions: any[] = [createTodoTransaction(todoList.id, text, maxOrder + 1, sublistId)];
   if (sublistId && source !== "auto") {
     transactions.push(createClassificationTransaction(todoList.id, sublistId, text, source));
   }

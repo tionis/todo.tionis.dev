@@ -4,14 +4,19 @@ import { useEffect, useSyncExternalStore } from "react";
 import * as Automerge from "@automerge/automerge/slim";
 import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
+import { commitPersistedDocument } from "../shared/content-commit.mjs";
 import { refreshFullListDetails } from "../shared/list-refresh-policy.mjs";
 import { userDisplayName } from "../shared/identity.mjs";
+import { reconcileRemoteDocument } from "../shared/sync-policy.mjs";
 import {
   applyContentOperationsToDraft,
+  classifierResetPlan,
   collectListAssociations,
   explicitListId,
   groupContentOperations,
+  withoutRedundantListContentDeletes,
 } from "../shared/transaction-routing.mjs";
+import { runTransactionPhases } from "../shared/transaction-phases.mjs";
 
 export interface User { id: string; email?: string | null; name?: string | null; username?: string | null; active?: boolean }
 type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "invitations" | "pinnedLists";
@@ -144,14 +149,11 @@ function connectList(listId: string) {
     const remoteBytes = new Uint8Array(event.data);
     if (remoteBytes.byteLength > MAX_DOCUMENT_BYTES) { socket.close(1009, "Document too large"); return; }
     const remote = Automerge.load<ListDocument>(remoteBytes);
-    const local = state.document;
-    const merged = state.access === "read" || !local ? remote : Automerge.merge(local, remote);
-    const shouldUpload = state.access === "write" && !!local
-      && Automerge.getHeads(merged).join(",") !== Automerge.getHeads(remote).join(",");
-    await writeLocalDocument(listId, merged);
-    state.document = merged;
-    if (shouldUpload && socket.readyState === WebSocket.OPEN) {
-      const bytes = Automerge.save(state.document);
+    const reconciled = reconcileRemoteDocument(Automerge, state.document, remote, state.access);
+    await writeLocalDocument(listId, reconciled.document);
+    state.document = reconciled.document;
+    if (reconciled.shouldUpload && socket.readyState === WebSocket.OPEN) {
+      const bytes = Automerge.save(reconciled.document);
       if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
       socket.send(bytes);
     }
@@ -292,10 +294,14 @@ async function transact(input: any) {
   const operations = operationList(input);
   const listAssociations = collectListAssociations(operations);
   const deletedListIds = new Set(operations.filter((operation) => operation.entity === "todoLists" && operation.kind === "delete").map((operation) => operation.id));
-  const classifierReset = operations.find((operation) => operation.entity === "todoLists" && operation.kind === "update" && operation.data?.classifierResetAt);
-  if (classifierReset && operations.some((operation) => operation.entity === "todoClassifications" && operation.kind === "delete")) {
-    await api(`/api/lists/${classifierReset.id}/classifier/reset`, { method: "POST" });
-    const state = lists.get(classifierReset.id);
+  const classifierReset = classifierResetPlan(operations);
+  if (classifierReset) {
+    const resetDeletes = operations.filter((operation) => operation.entity === "todoClassifications" && operation.kind === "delete");
+    if (resetDeletes.some((operation) => entityListId(operation, listAssociations) !== classifierReset.listId)) {
+      throw new Error("Classifier reset contains data from another list");
+    }
+    await api(`/api/lists/${classifierReset.listId}/classifier/reset`, { method: "POST" });
+    const state = lists.get(classifierReset.listId);
     if (state) await loadList(state.metadata.slug, true);
     return;
   }
@@ -308,24 +314,38 @@ async function transact(input: any) {
     const result = await api("/api/lists", { method: "POST", body: JSON.stringify({ id: newList.id, ...newList.data, document: bytesToBase64(Automerge.save(document)) }) });
     await registerList(result.list); dashboardLoaded = false; await loadDashboard(true); return;
   }
+  const routedOperations = withoutRedundantListContentDeletes(operations);
   const contentByList = groupContentOperations(
-    operations,
+    routedOperations,
     listAssociations,
     (operation: Operation) => entityListId(operation),
   ) as Map<string, Operation[]>;
-  for (const [listId, content] of contentByList) {
-    const state = lists.get(listId);
-    if (!state) throw new Error("List is not loaded");
-    const nextDocument = applyContentOperations(state.document || emptyDocument(), content);
-    await writeLocalDocument(listId, nextDocument);
-    state.document = nextDocument;
-    if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") {
-      const bytes = Automerge.save(state.document);
-      if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
-      state.socket.send(bytes);
-    }
-  }
-  for (const operation of operations.filter((candidate) => candidate.entity === "todoLists")) { if (operation.kind === "update") await api(`/api/lists/${operation.id}`, { method: "PATCH", body: JSON.stringify(operation.data) }); if (operation.kind === "delete") await api(`/api/lists/${operation.id}`, { method: "DELETE" }); }
+  await runTransactionPhases([
+    async () => {
+      for (const operation of operations.filter((candidate) => candidate.entity === "todoLists")) {
+        if (operation.kind === "update") await api(`/api/lists/${operation.id}`, { method: "PATCH", body: JSON.stringify(operation.data) });
+        if (operation.kind === "delete") await api(`/api/lists/${operation.id}`, { method: "DELETE" });
+      }
+    },
+    async () => {
+      for (const [listId, content] of contentByList) {
+        const state = lists.get(listId);
+        if (!state) throw new Error("List is not loaded");
+        const nextDocument = applyContentOperations(state.document || emptyDocument(), content);
+        const nextBytes = Automerge.save(nextDocument);
+        if (nextBytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
+        await commitPersistedDocument({
+          document: nextDocument,
+          persist: (document: Automerge.Doc<ListDocument>) => writeLocalDocument(listId, document),
+          commit: (document: Automerge.Doc<ListDocument>) => { state.document = document; },
+          publish: state.socket?.readyState === WebSocket.OPEN && state.access === "write"
+            ? () => state.socket!.send(nextBytes)
+            : undefined,
+          recoverPublish: () => state.socket?.close(1011, "Sync retry required"),
+        });
+      }
+    },
+  ]);
   const ownerTransfer = operations.find((candidate) => candidate.entity === "todoLists" && candidate.kind === "link" && candidate.links?.owner);
   if (ownerTransfer?.links?.owner) await api(`/api/lists/${ownerTransfer.id}/transfer`, { method: "POST", body: JSON.stringify({ userId: ownerTransfer.links.owner }) });
   for (const operation of operations.filter((candidate) => candidate.entity === "pinnedLists")) { const listId = operation.links?.list || [...lists.values()].find((state) => state.metadata.pins?.some((pin: any) => pin.id === operation.id))?.metadata.id; if (listId && operation.kind === "link") await api(`/api/lists/${listId}/pin`, { method: "POST" }); if (listId && operation.kind === "delete") await api(`/api/lists/${listId}/pin`, { method: "DELETE" }); }
