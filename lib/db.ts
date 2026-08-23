@@ -6,7 +6,12 @@ import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64"
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
 import { refreshFullListDetails } from "../shared/list-refresh-policy.mjs";
 import { userDisplayName } from "../shared/identity.mjs";
-import { collectListAssociations, explicitListId } from "../shared/transaction-routing.mjs";
+import {
+  applyContentOperationsToDraft,
+  collectListAssociations,
+  explicitListId,
+  groupContentOperations,
+} from "../shared/transaction-routing.mjs";
 
 export interface User { id: string; email?: string | null; name?: string | null; username?: string | null; active?: boolean }
 type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "invitations" | "pinnedLists";
@@ -278,13 +283,7 @@ function entityListId(operation: Operation, listAssociations?: Map<string, strin
 }
 function applyContentOperations(document: Automerge.Doc<ListDocument>, operations: Operation[]) {
   return Automerge.change(document, (draft) => {
-    for (const operation of operations) {
-      const collection = operation.entity === "todos" ? draft.todos : operation.entity === "sublists" ? draft.categories : draft.classifierHistory;
-      if (operation.kind === "delete") delete collection[operation.id];
-      else if (operation.kind === "update") { if (!collection[operation.id]) collection[operation.id] = { id: operation.id }; Object.assign(collection[operation.id], operation.data); }
-      else if (operation.kind === "link" && operation.links?.sublist && collection[operation.id]) collection[operation.id].categoryId = operation.links.sublist;
-      else if (operation.kind === "unlink" && operation.links?.sublist && collection[operation.id]) delete collection[operation.id].categoryId;
-    }
+    applyContentOperationsToDraft(draft, operations);
   });
 }
 function bytesToBase64(bytes: Uint8Array) { let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary); }
@@ -309,8 +308,11 @@ async function transact(input: any) {
     const result = await api("/api/lists", { method: "POST", body: JSON.stringify({ id: newList.id, ...newList.data, document: bytesToBase64(Automerge.save(document)) }) });
     await registerList(result.list); dashboardLoaded = false; await loadDashboard(true); return;
   }
-  const contentByList = new Map<string, Operation[]>();
-  for (const operation of operations.filter((candidate) => ["todos", "sublists", "todoClassifications"].includes(candidate.entity))) { const listId = entityListId(operation, listAssociations); if (!listId) throw new Error(`Cannot find list for ${operation.entity}/${operation.id}`); contentByList.set(listId, [...(contentByList.get(listId) || []), operation]); }
+  const contentByList = groupContentOperations(
+    operations,
+    listAssociations,
+    (operation: Operation) => entityListId(operation),
+  ) as Map<string, Operation[]>;
   for (const [listId, content] of contentByList) {
     const state = lists.get(listId);
     if (!state) throw new Error("List is not loaded");
