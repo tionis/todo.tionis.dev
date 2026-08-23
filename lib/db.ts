@@ -5,8 +5,9 @@ import * as Automerge from "@automerge/automerge/slim";
 import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
 import { refreshFullListDetails } from "../shared/list-refresh-policy.mjs";
+import { userDisplayName } from "../shared/identity.mjs";
 
-export interface User { id: string; email?: string | null; name?: string | null }
+export interface User { id: string; email?: string | null; name?: string | null; username?: string | null; active?: boolean }
 type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "invitations" | "pinnedLists";
 type Operation = { entity: EntityName; id: string; kind: "update" | "delete" | "link" | "unlink"; data?: Record<string, any>; links?: Record<string, string> };
 interface ListDocument { [key: string]: unknown; schemaVersion: 1; todos: Record<string, any>; categories: Record<string, any>; classifierHistory: Record<string, any> }
@@ -157,7 +158,13 @@ async function registerList(metadata: any) {
   let state = lists.get(metadata.id);
   if (!state) { state = { metadata, document: await readLocalDocument(metadata.id) }; lists.set(metadata.id, state); }
   else state.metadata = state.metadata._full && !metadata._full
-    ? { ...metadata, _full: true, members: state.metadata.members, invitations: state.metadata.invitations }
+    ? {
+      ...metadata,
+      _full: true,
+      members: state.metadata.members,
+      invitations: state.metadata.invitations,
+      groupGrants: state.metadata.groupGrants,
+    }
     : metadata;
   connectList(metadata.id);
 }
@@ -348,7 +355,24 @@ export const db = {
       emit();
     },
   },
-  rooms: { usePresence(_room?: any, _options?: any) { return { peers: {}, publishPresence: presenceNoop, user: user ? { name: user.email, userId: user.id } : null }; } },
+  sharing: {
+    search(listId: string, query: string) {
+      return api(`/api/lists/${encodeURIComponent(listId)}/share-targets?q=${encodeURIComponent(query)}`);
+    },
+    async addUser(listId: string, userId: string) {
+      await api(`/api/lists/${encodeURIComponent(listId)}/members`, { method: "POST", body: JSON.stringify({ userId }) });
+      const state = lists.get(listId); if (state) await loadList(state.metadata.slug, true);
+    },
+    async addGroup(listId: string, groupId: string) {
+      await api(`/api/lists/${encodeURIComponent(listId)}/groups`, { method: "POST", body: JSON.stringify({ groupId }) });
+      const state = lists.get(listId); if (state) await loadList(state.metadata.slug, true);
+    },
+    async removeGroup(listId: string, grantId: string) {
+      await api(`/api/group-grants/${encodeURIComponent(grantId)}`, { method: "DELETE" });
+      const state = lists.get(listId); if (state) await loadList(state.metadata.slug, true);
+    },
+  },
+  rooms: { usePresence(_room?: any, _options?: any) { return { peers: {}, publishPresence: presenceNoop, user: user ? { name: userDisplayName(user), userId: user.id } : null }; } },
 };
 
 function presenceNoop(_presence?: any) {}

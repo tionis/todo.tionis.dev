@@ -40,6 +40,7 @@ import { executeTransaction, canUserWrite, canUserView, transferListOwnership } 
 import { buildImportTemplateTransactions } from "../../lib/listTemplates";
 import { downloadListExport } from "../../lib/listExport";
 import { formatListTags, parseListTags, tagInputToList } from "../../lib/tags";
+import { userDisplayName } from "../../shared/identity.mjs";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
 import Modal from './Modal';
@@ -69,6 +70,7 @@ interface TodoList {
   todos: Todo[];
   sublists: Sublist[];
   members: any[];
+  groupGrants: any[];
   invitations: any[];
   pins: any[];
   todoClassifications: any[];
@@ -377,18 +379,18 @@ function TodoListApp({
     peers,
     publishPresence,
   } = db.rooms.usePresence(room, {
-    initialData: { name: user?.email || "Anonymous User", userId: user?.id || undefined }
+    initialData: { name: userDisplayName(user), userId: user?.id || undefined }
   });
 
   // Update presence when user data changes
   useEffect(() => {
-    if (user?.email) {
+    if (user) {
       publishPresence({ 
-        name: user.email, 
+        name: userDisplayName(user),
         userId: user.id 
       });
     }
-  }, [user?.email, user?.id, publishPresence]);
+  }, [user, publishPresence]);
   
   const numUsers = 1 + Object.keys(peers).length;
   const [showDeleteCompletedConfirm, setShowDeleteCompletedConfirm] = useState(false);
@@ -1303,7 +1305,7 @@ function SettingsPanel({
         </div>
         
         {/* Transfer Ownership */}
-        {todoList.members.filter(member => member.user?.id && member.user?.email).length > 0 && (
+        {todoList.members.filter(member => member.user?.id && member.user?.active !== false).length > 0 && (
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4">
             <div className="flex items-start space-x-3">
               <div className="flex-shrink-0">
@@ -2111,8 +2113,32 @@ function ShareModal({
   const [showSuccess, setShowSuccess] = useState("");
   const [showError, setShowError] = useState<string | null>(null);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [directoryResults, setDirectoryResults] = useState<{ users: any[]; groups: any[] }>({ users: [], groups: [] });
+  const [isSearching, setIsSearching] = useState(false);
   
   const listUrl = getListUrl(todoList.slug);
+
+  useEffect(() => {
+    const query = newMemberEmail.trim();
+    if (!isOwner || query.length < 2) {
+      setDirectoryResults({ users: [], groups: [] });
+      setIsSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setIsSearching(true);
+    const timeout = window.setTimeout(() => {
+      db.sharing.search(todoList.id, query).then((result) => {
+        if (!cancelled) setDirectoryResults(result);
+      }).catch((error) => {
+        console.error("Failed to search directory:", error);
+        if (!cancelled) setDirectoryResults({ users: [], groups: [] });
+      }).finally(() => {
+        if (!cancelled) setIsSearching(false);
+      });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timeout); };
+  }, [isOwner, newMemberEmail, todoList.id]);
 
   const handleCopy = async () => {
     try {
@@ -2132,6 +2158,10 @@ function ShareModal({
     setShowError(null);
     try {
       const email = newMemberEmail.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setShowError("Select a directory user or group, or enter a valid email address.");
+        return;
+      }
       
       // Check if user is already a member
       const existingMember = todoList.members.find(member => 
@@ -2181,6 +2211,47 @@ function ShareModal({
       setShowError("Failed to send invitation. Please try again.");
     } finally {
       setIsInviting(false);
+    }
+  };
+
+  const addDirectoryUser = async (target: any) => {
+    setIsInviting(true);
+    setShowError(null);
+    try {
+      await db.sharing.addUser(todoList.id, target.id);
+      setShowSuccess(`${userDisplayName(target)} now has access to this list.`);
+      setNewMemberEmail("");
+      setDirectoryResults({ users: [], groups: [] });
+    } catch (error) {
+      console.error("Failed to add directory user:", error);
+      setShowError("Failed to add this user. Please try again.");
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const addDirectoryGroup = async (group: any) => {
+    setIsInviting(true);
+    setShowError(null);
+    try {
+      await db.sharing.addGroup(todoList.id, group.id);
+      setShowSuccess(`${group.name} now has access to this list.`);
+      setNewMemberEmail("");
+      setDirectoryResults({ users: [], groups: [] });
+    } catch (error) {
+      console.error("Failed to add directory group:", error);
+      setShowError("Failed to add this group. Please try again.");
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const removeGroup = async (grantId: string) => {
+    try {
+      await db.sharing.removeGroup(todoList.id, grantId);
+    } catch (error) {
+      console.error("Failed to remove group access:", error);
+      setShowError("Failed to remove group access. Please try again.");
     }
   };
 
@@ -2277,29 +2348,59 @@ function ShareModal({
 
         {isOwner && (
           <>
-            {/* Send Invitation */}
+            {/* Directory sharing and email invitations */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Invite New Member</label>
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Add a User or Group</label>
               <div className="space-y-2">
                 <div className="flex space-x-2">
                   <input
-                    type="email"
+                    type="text"
                     value={newMemberEmail}
                     onChange={(e) => setNewMemberEmail(e.target.value)}
-                    placeholder="Enter email address"
+                    placeholder="Search name, @username, group, or email"
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                     disabled={isInviting}
                   />
                   <button
                     onClick={sendInvitation}
-                    disabled={isInviting || !newMemberEmail.trim()}
+                    disabled={isInviting || !newMemberEmail.includes('@')}
                     className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isInviting ? "Sending..." : "Invite"}
+                    {isInviting ? "Working..." : "Invite Email"}
                   </button>
                 </div>
+                {(isSearching || directoryResults.users.length > 0 || directoryResults.groups.length > 0) && (
+                  <div className="border border-gray-200 dark:border-gray-600 rounded divide-y divide-gray-200 dark:divide-gray-600 max-h-48 overflow-y-auto">
+                    {isSearching && <p className="p-2 text-sm text-gray-500 dark:text-gray-400">Searching directory…</p>}
+                    {!isSearching && directoryResults.users.map((target) => (
+                      <button
+                        key={`user-${target.id}`}
+                        type="button"
+                        onClick={() => addDirectoryUser(target)}
+                        className="w-full p-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-between"
+                      >
+                        <span>
+                          <span className="block text-sm text-gray-900 dark:text-white">{userDisplayName(target)}</span>
+                          {target.name && target.username && <span className="block text-xs text-gray-500 dark:text-gray-400">@{target.username}</span>}
+                        </span>
+                        <span className="text-xs text-blue-600 dark:text-blue-400">Add user</span>
+                      </button>
+                    ))}
+                    {!isSearching && directoryResults.groups.map((group) => (
+                      <button
+                        key={`group-${group.id}`}
+                        type="button"
+                        onClick={() => addDirectoryGroup(group)}
+                        className="w-full p-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-between"
+                      >
+                        <span className="text-sm text-gray-900 dark:text-white">{group.name}</span>
+                        <span className="text-xs text-blue-600 dark:text-blue-400">Add group</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Sends an invitation and grants access to this list
+                  Directory users and groups get access immediately. Unknown users can still be invited by email.
                 </p>
               </div>
             </div>
@@ -2330,7 +2431,11 @@ function ShareModal({
               <div className="space-y-2 max-h-32 overflow-y-auto">
                 {todoList.members.map(member => (
                   <div key={member.id} className="flex items-center justify-between py-1">
-                    <span className="text-sm text-gray-900 dark:text-white">{member.user?.email || 'Unknown User'}</span>
+                    <span>
+                      <span className="block text-sm text-gray-900 dark:text-white">{userDisplayName(member.user)}</span>
+                      {member.user?.name && member.user?.username && <span className="block text-xs text-gray-500 dark:text-gray-400">@{member.user.username}</span>}
+                      {member.user?.active === false && <span className="block text-xs text-amber-600 dark:text-amber-400">Deprovisioned</span>}
+                    </span>
                     <button
                       onClick={() => removeMember(member.id)}
                       className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
@@ -2341,6 +2446,27 @@ function ShareModal({
                 ))}
                 {todoList.members.length === 0 && (
                   <p className="text-sm text-gray-500 dark:text-gray-400">No members added</p>
+                )}
+              </div>
+            </div>
+
+            {/* Directory Groups */}
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Directory Groups</label>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {(todoList.groupGrants || []).map((grant) => (
+                  <div key={grant.id} className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-900 dark:text-white">{grant.group?.name || 'Unknown Group'}</span>
+                    <button
+                      onClick={() => removeGroup(grant.id)}
+                      className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {(todoList.groupGrants || []).length === 0 && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No groups added</p>
                 )}
               </div>
             </div>
@@ -2540,7 +2666,7 @@ function TransferOwnershipModal({
             
             <div className="space-y-2">
               {todoList.members
-                .filter(member => member.user?.id && member.user?.email) // Only show members with valid user data
+                .filter(member => member.user?.id && member.user?.active !== false)
                 .map(member => (
                 <label key={member.id} className="flex items-center space-x-3 p-3 rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
                   <input
@@ -2553,7 +2679,7 @@ function TransferOwnershipModal({
                   />
                   <div className="flex-1">
                     <div className="text-gray-900 dark:text-white">
-                      {member.user?.email || "Unknown User"}
+                      {userDisplayName(member.user)}
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-400">
                       Member since {new Date(member.addedAt).toLocaleDateString()}
@@ -2563,7 +2689,7 @@ function TransferOwnershipModal({
               ))}
             </div>
 
-            {todoList.members.filter(member => member.user?.id && member.user?.email).length === 0 && (
+            {todoList.members.filter(member => member.user?.id && member.user?.active !== false).length === 0 && (
               <p className="text-sm text-gray-500 dark:text-gray-400 italic">
                 No valid members available. You need to invite members with confirmed accounts before you can transfer ownership.
               </p>
@@ -2590,12 +2716,12 @@ function TransferOwnershipModal({
         <>
           <div className="mb-6">
             <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Are you sure you want to transfer ownership to <strong>{selectedMember?.user?.email}</strong>?
+              Are you sure you want to transfer ownership to <strong>{userDisplayName(selectedMember?.user)}</strong>?
             </p>
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3">
               <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">After this transfer:</p>
               <ul className="text-sm text-yellow-600 dark:text-yellow-400 space-y-1">
-                <li>• <strong>{selectedMember?.user?.email}</strong> will become the owner</li>
+                <li>• <strong>{userDisplayName(selectedMember?.user)}</strong> will become the owner</li>
                 <li>• You will become a regular member</li>
                 <li>• Only the new owner can manage settings and members</li>
                 <li>• This action cannot be undone without the new owner's permission</li>
@@ -2643,7 +2769,7 @@ function OnlineUsersTooltip({
   const allUsers = [
     ...(currentUser && myPresence ? [{
       id: currentUser.id,
-      name: myPresence.name || currentUser.email,
+      name: myPresence.name || userDisplayName(currentUser),
       isCurrentUser: true
     }] : []),
     ...Object.entries(peers).map(([peerId, peer]) => ({

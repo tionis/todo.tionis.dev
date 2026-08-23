@@ -10,12 +10,14 @@ import {
   oidcBindingCookie,
   sessionCookie,
 } from "./auth.mjs";
+import { accessFor as calculateAccess } from "./access.mjs";
 import { loadConfig } from "./config.mjs";
 import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
 import { DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
 import { consumeInvitation } from "./invitations.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 import { createFixedWindowRateLimiter } from "./rate-limit.mjs";
+import { handleScimRequest } from "./scim.mjs";
 import { serveStatic } from "./static.mjs";
 
 const PERMISSIONS = new Set(["public-write", "public-read", "private-write", "private-read", "owner"]);
@@ -101,42 +103,58 @@ function listRowById(id) {
 }
 
 function accessFor(list, user) {
-  if (!list) return { read: false, write: false, owner: false, member: false };
-  const owner = !!user && list.owner_id === user.id;
-  const member = !!user && !!database.prepare(
-    "SELECT 1 FROM members WHERE list_id = ? AND user_id = ?"
-  ).get(list.id, user.id);
-  const publicAccess = list.permission === "public-read" || list.permission === "public-write";
-  const read = publicAccess || owner || member;
-  const write = list.permission === "public-write"
-    || (list.permission === "private-write" && (owner || member))
-    || (list.permission === "owner" && owner);
-  return { read, write, owner, member };
+  return calculateAccess(database, list, user);
 }
 
 function userShape(row) {
-  return row ? { id: row.id, email: row.email, name: row.name } : null;
+  return row ? {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    username: row.username,
+    ...(row.active === undefined ? {} : { active: !!row.active }),
+  } : null;
 }
 
 function listShape(row, user, full = false) {
   const access = accessFor(row, user);
   const exposeMemberIdentities = mayExposeMemberIdentities(access);
   const owner = exposeMemberIdentities
-    ? database.prepare("SELECT id, email, name FROM users WHERE id = ?").get(row.owner_id)
+    ? database.prepare("SELECT id, email, name, username, active FROM users WHERE id = ?").get(row.owner_id)
     : null;
   const members = full && exposeMemberIdentities ? database.prepare(`
     SELECT members.id, members.role, members.added_at, users.id AS user_id,
-      users.email, users.name
+      users.email, users.name, users.username, users.active
     FROM members JOIN users ON users.id = members.user_id
     WHERE members.list_id = ? ORDER BY members.added_at
   `).all(row.id).map((member) => ({
     id: member.id,
     role: member.role,
     addedAt: member.added_at,
-    user: { id: member.user_id, email: member.email, name: member.name },
+    user: {
+      id: member.user_id,
+      email: member.email,
+      name: member.name,
+      username: member.username,
+      active: !!member.active,
+    },
+  })) : [];
+  const groupGrants = full && exposeMemberIdentities ? database.prepare(`
+    SELECT grants.id, grants.role, grants.added_at, groups.id AS group_id,
+      groups.display_name, groups.external_id
+    FROM list_group_grants grants
+    JOIN directory_groups groups ON groups.id = grants.group_id
+    WHERE grants.list_id = ? AND groups.active = 1
+    ORDER BY groups.display_name
+  `).all(row.id).map((grant) => ({
+    id: grant.id,
+    role: grant.role,
+    addedAt: grant.added_at,
+    group: { id: grant.group_id, name: grant.display_name, externalId: grant.external_id },
   })) : [];
   const invitations = full && access.owner ? database.prepare(`
-    SELECT invitations.*, users.id AS inviter_user_id, users.email AS inviter_email
+    SELECT invitations.*, users.id AS inviter_user_id, users.email AS inviter_email,
+      users.name AS inviter_name, users.username AS inviter_username
     FROM invitations JOIN users ON users.id = invitations.inviter_id
     WHERE invitations.list_id = ? ORDER BY invitations.invited_at DESC
   `).all(row.id).map((invitation) => ({
@@ -145,7 +163,12 @@ function listShape(row, user, full = false) {
     role: invitation.role,
     status: invitation.status,
     invitedAt: invitation.invited_at,
-    inviter: { id: invitation.inviter_user_id, email: invitation.inviter_email },
+    inviter: {
+      id: invitation.inviter_user_id,
+      email: invitation.inviter_email,
+      name: invitation.inviter_name,
+      username: invitation.inviter_username,
+    },
   })) : [];
   const pin = user ? database.prepare(
     "SELECT id, created_at FROM pins WHERE list_id = ? AND user_id = ?"
@@ -165,6 +188,7 @@ function listShape(row, user, full = false) {
     updatedAt: row.updated_at,
     owner: userShape(owner),
     members,
+    groupGrants,
     invitations,
     pins: pin && user ? [{ id: pin.id, createdAt: pin.created_at, user: userShape(user) }] : [],
     access,
@@ -238,10 +262,15 @@ async function handleApi(request, response, url) {
       SELECT DISTINCT lists.* FROM lists
       LEFT JOIN members ON members.list_id = lists.id
       LEFT JOIN pins ON pins.list_id = lists.id
-      WHERE lists.owner_id = ? OR members.user_id = ? OR pins.user_id = ?
+      WHERE lists.owner_id = ? OR members.user_id = ? OR pins.user_id = ? OR EXISTS (
+        SELECT 1 FROM list_group_grants grants
+        JOIN directory_groups groups ON groups.id = grants.group_id AND groups.active = 1
+        JOIN directory_group_members memberships ON memberships.group_id = groups.id
+        WHERE grants.list_id = lists.id AND memberships.user_id = ?
+      )
       ORDER BY lists.created_at DESC
-    `).all(user.id, user.id, user.id);
-    const invitationCount = user.email ? database.prepare(
+    `).all(user.id, user.id, user.id, user.id);
+    const invitationCount = user.email && user.emailVerified ? database.prepare(
       "SELECT COUNT(*) AS count FROM invitations WHERE lower(email) = lower(?) AND status = 'pending'"
     ).get(user.email).count : 0;
     json(response, 200, { lists: rows.map((row) => listShape(row, user)), pendingInvitationsCount: invitationCount });
@@ -354,6 +383,88 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  const shareTargetsMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/share-targets$/);
+  if (shareTargetsMatch && request.method === "GET") {
+    const user = requireUser(request, response);
+    if (!user) return;
+    const listId = decodeURIComponent(shareTargetsMatch[1]);
+    const list = listRowById(listId);
+    if (!accessFor(list, user).owner) return fail(response, 403, "Only the owner can search directory identities");
+    const query = (url.searchParams.get("q") || "").trim();
+    if (query.length < 2) return json(response, 200, { users: [], groups: [] });
+    const users = database.prepare(`
+      SELECT id, email, name, username FROM users
+      WHERE active = 1 AND id != ?
+        AND NOT EXISTS (SELECT 1 FROM members WHERE members.list_id = ? AND members.user_id = users.id)
+        AND (instr(lower(COALESCE(username, '')), lower(?)) > 0
+          OR instr(lower(COALESCE(name, '')), lower(?)) > 0
+          OR instr(lower(COALESCE(email, '')), lower(?)) > 0)
+      ORDER BY COALESCE(name, username, email) LIMIT 12
+    `).all(list.owner_id, listId, query, query, query).map(userShape);
+    const groups = database.prepare(`
+      SELECT id, external_id, display_name FROM directory_groups
+      WHERE active = 1
+        AND NOT EXISTS (SELECT 1 FROM list_group_grants WHERE list_id = ? AND group_id = directory_groups.id)
+        AND instr(lower(display_name), lower(?)) > 0
+      ORDER BY display_name LIMIT 12
+    `).all(listId, query).map((group) => ({ id: group.id, externalId: group.external_id, name: group.display_name }));
+    json(response, 200, { users, groups });
+    return;
+  }
+
+  const listMembersMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/members$/);
+  if (listMembersMatch && request.method === "POST") {
+    if (!trustedMutation(request, response)) return;
+    const user = requireUser(request, response);
+    if (!user) return;
+    const listId = decodeURIComponent(listMembersMatch[1]);
+    const list = listRowById(listId);
+    if (!accessFor(list, user).owner) return fail(response, 403, "Only the owner can add members");
+    const body = await readJson(request);
+    const target = database.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(body.userId);
+    if (!target || target.id === list.owner_id) return fail(response, 400, "Invalid member");
+    const existing = database.prepare("SELECT id FROM members WHERE list_id = ? AND user_id = ?").get(listId, target.id);
+    const id = existing?.id || crypto.randomUUID();
+    database.prepare("INSERT OR IGNORE INTO members (id, list_id, user_id, role, added_at) VALUES (?, ?, ?, 'member', ?)")
+      .run(id, listId, target.id, new Date().toISOString());
+    refreshListConnections(listId);
+    json(response, existing ? 200 : 201, { id });
+    return;
+  }
+
+  const listGroupsMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/groups$/);
+  if (listGroupsMatch && request.method === "POST") {
+    if (!trustedMutation(request, response)) return;
+    const user = requireUser(request, response);
+    if (!user) return;
+    const listId = decodeURIComponent(listGroupsMatch[1]);
+    if (!accessFor(listRowById(listId), user).owner) return fail(response, 403, "Only the owner can share with groups");
+    const body = await readJson(request);
+    const group = database.prepare("SELECT id FROM directory_groups WHERE id = ? AND active = 1").get(body.groupId);
+    if (!group) return fail(response, 400, "Invalid group");
+    const existing = database.prepare("SELECT id FROM list_group_grants WHERE list_id = ? AND group_id = ?").get(listId, group.id);
+    const id = existing?.id || crypto.randomUUID();
+    database.prepare("INSERT OR IGNORE INTO list_group_grants (id, list_id, group_id, role, added_at) VALUES (?, ?, ?, 'member', ?)")
+      .run(id, listId, group.id, new Date().toISOString());
+    refreshListConnections(listId);
+    json(response, existing ? 200 : 201, { id });
+    return;
+  }
+
+  const groupGrantMatch = url.pathname.match(/^\/api\/group-grants\/([^/]+)$/);
+  if (groupGrantMatch && request.method === "DELETE") {
+    if (!trustedMutation(request, response)) return;
+    const user = requireUser(request, response);
+    if (!user) return;
+    const grant = database.prepare("SELECT * FROM list_group_grants WHERE id = ?").get(decodeURIComponent(groupGrantMatch[1]));
+    if (!grant) return fail(response, 404, "Group grant not found");
+    if (!accessFor(listRowById(grant.list_id), user).owner) return fail(response, 403, "Only the owner can remove group access");
+    database.prepare("DELETE FROM list_group_grants WHERE id = ?").run(grant.id);
+    refreshListConnections(grant.list_id);
+    json(response, 200, { ok: true });
+    return;
+  }
+
   const inviteListMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/invitations$/);
   if (inviteListMatch && request.method === "POST") {
     if (!trustedMutation(request, response)) return;
@@ -382,7 +493,7 @@ async function handleApi(request, response, url) {
     if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can transfer this list");
     const body = await readJson(request);
     const newOwnerMembership = database.prepare(
-      "SELECT id FROM members WHERE list_id = ? AND user_id = ?"
+      "SELECT members.id FROM members JOIN users ON users.id = members.user_id WHERE members.list_id = ? AND members.user_id = ? AND users.active = 1"
     ).get(listId, body.userId);
     if (!newOwnerMembership) return fail(response, 400, "The new owner must already be a list member");
     database.transaction(() => {
@@ -418,9 +529,10 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/invitations") {
     const user = requireUser(request, response);
     if (!user) return;
-    const rows = user.email ? database.prepare(`
+    const rows = user.email && user.emailVerified ? database.prepare(`
       SELECT invitations.*, lists.name AS list_name, lists.slug AS list_slug,
-        users.id AS inviter_user_id, users.email AS inviter_email
+        users.id AS inviter_user_id, users.email AS inviter_email,
+        users.name AS inviter_name, users.username AS inviter_username
       FROM invitations
       JOIN lists ON lists.id = invitations.list_id
       JOIN users ON users.id = invitations.inviter_id
@@ -430,7 +542,7 @@ async function handleApi(request, response, url) {
     json(response, 200, { invitations: rows.map((row) => ({
       id: row.id, email: row.email, role: row.role, status: row.status,
       invitedAt: row.invited_at,
-      inviter: { id: row.inviter_user_id, email: row.inviter_email },
+      inviter: { id: row.inviter_user_id, email: row.inviter_email, name: row.inviter_name, username: row.inviter_username },
       list: { id: row.list_id, name: row.list_name, slug: row.list_slug },
     })) });
     return;
@@ -441,7 +553,7 @@ async function handleApi(request, response, url) {
     const user = requireUser(request, response);
     if (!user) return;
     const invitation = database.prepare("SELECT * FROM invitations WHERE id = ?").get(decodeURIComponent(invitationMatch[1]));
-    if (!invitation || !user.email || invitation.email.toLowerCase() !== user.email.toLowerCase()) return fail(response, 403, "Invitation access denied");
+    if (!invitation || !user.emailVerified || !user.email || invitation.email.toLowerCase() !== user.email.toLowerCase()) return fail(response, 403, "Invitation access denied");
     const body = await readJson(request);
     if (!new Set(["accepted", "declined"]).has(body.status)) return fail(response, 400, "Invalid invitation status");
     consumeInvitation(database, invitation, user.id, body.status);
@@ -481,7 +593,15 @@ const server = http.createServer(async (request, response) => {
   setCors(request, response);
   try {
     const url = new URL(request.url || "/", config.publicUrl);
-    if (url.pathname.startsWith("/api/") || url.pathname === "/sync") {
+    if (url.pathname.startsWith("/scim/v2")) {
+      await handleScimRequest(request, response, url, {
+        database,
+        config,
+        onAccessChanged(listIds) {
+          for (const listId of new Set(listIds)) refreshListConnections(listId);
+        },
+      });
+    } else if (url.pathname.startsWith("/api/") || url.pathname === "/sync") {
       await handleApi(request, response, url);
     } else if (!await serveStatic(request, response, url, config.staticDir)) {
       fail(response, 404, "Not found");
