@@ -6,6 +6,7 @@ import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64"
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
 import { refreshFullListDetails } from "../shared/list-refresh-policy.mjs";
 import { userDisplayName } from "../shared/identity.mjs";
+import { collectListAssociations, explicitListId } from "../shared/transaction-routing.mjs";
 
 export interface User { id: string; email?: string | null; name?: string | null; username?: string | null; active?: boolean }
 type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "invitations" | "pinnedLists";
@@ -270,8 +271,9 @@ class TransactionBuilder {
   unlink(links: Record<string, string>) { this.operations.push({ ...this.operations[0], kind: "unlink", links }); return this; }
 }
 function operationList(input: any): Operation[] { return (Array.isArray(input) ? input : [input]).flatMap((item) => item?.operations || []); }
-function entityListId(operation: Operation) {
-  if (operation.links?.list) return operation.links.list; if (operation.entity === "todoLists") return operation.id;
+function entityListId(operation: Operation, listAssociations?: Map<string, string>) {
+  const linkedListId = listAssociations ? explicitListId(operation, listAssociations) : operation.links?.list;
+  if (linkedListId) return linkedListId; if (operation.entity === "todoLists") return operation.id;
   for (const [listId, state] of lists) { const document = state.document; if (document && (document.todos[operation.id] || document.categories[operation.id] || document.classifierHistory[operation.id])) return listId; if (state.metadata.members?.some((member: any) => member.id === operation.id)) return listId; if (state.metadata.invitations?.some((item: any) => item.id === operation.id)) return listId; }
 }
 function applyContentOperations(document: Automerge.Doc<ListDocument>, operations: Operation[]) {
@@ -289,6 +291,7 @@ function bytesToBase64(bytes: Uint8Array) { let binary = ""; for (const byte of 
 
 async function transact(input: any) {
   const operations = operationList(input);
+  const listAssociations = collectListAssociations(operations);
   const deletedListIds = new Set(operations.filter((operation) => operation.entity === "todoLists" && operation.kind === "delete").map((operation) => operation.id));
   const classifierReset = operations.find((operation) => operation.entity === "todoLists" && operation.kind === "update" && operation.data?.classifierResetAt);
   if (classifierReset && operations.some((operation) => operation.entity === "todoClassifications" && operation.kind === "delete")) {
@@ -307,7 +310,7 @@ async function transact(input: any) {
     await registerList(result.list); dashboardLoaded = false; await loadDashboard(true); return;
   }
   const contentByList = new Map<string, Operation[]>();
-  for (const operation of operations.filter((candidate) => ["todos", "sublists", "todoClassifications"].includes(candidate.entity))) { const listId = entityListId(operation); if (!listId) throw new Error(`Cannot find list for ${operation.entity}/${operation.id}`); contentByList.set(listId, [...(contentByList.get(listId) || []), operation]); }
+  for (const operation of operations.filter((candidate) => ["todos", "sublists", "todoClassifications"].includes(candidate.entity))) { const listId = entityListId(operation, listAssociations); if (!listId) throw new Error(`Cannot find list for ${operation.entity}/${operation.id}`); contentByList.set(listId, [...(contentByList.get(listId) || []), operation]); }
   for (const [listId, content] of contentByList) {
     const state = lists.get(listId);
     if (!state) throw new Error("List is not loaded");
@@ -324,8 +327,8 @@ async function transact(input: any) {
   const ownerTransfer = operations.find((candidate) => candidate.entity === "todoLists" && candidate.kind === "link" && candidate.links?.owner);
   if (ownerTransfer?.links?.owner) await api(`/api/lists/${ownerTransfer.id}/transfer`, { method: "POST", body: JSON.stringify({ userId: ownerTransfer.links.owner }) });
   for (const operation of operations.filter((candidate) => candidate.entity === "pinnedLists")) { const listId = operation.links?.list || [...lists.values()].find((state) => state.metadata.pins?.some((pin: any) => pin.id === operation.id))?.metadata.id; if (listId && operation.kind === "link") await api(`/api/lists/${listId}/pin`, { method: "POST" }); if (listId && operation.kind === "delete") await api(`/api/lists/${listId}/pin`, { method: "DELETE" }); }
-  for (const operation of operations.filter((candidate) => candidate.entity === "invitations" && !deletedListIds.has(entityListId(candidate) || ""))) { if (operation.kind === "delete") await api(`/api/invitations/${operation.id}`, { method: "DELETE" }); else if (operation.kind === "update" && operation.data?.status) await api(`/api/invitations/${operation.id}`, { method: "PATCH", body: JSON.stringify({ status: operation.data.status }) }); else if (operation.kind === "update") { const link = operations.find((candidate) => candidate.entity === "invitations" && candidate.id === operation.id && candidate.links?.list); if (link?.links?.list) await api(`/api/lists/${link.links.list}/invitations`, { method: "POST", body: JSON.stringify(operation.data) }); } }
-  if (!ownerTransfer) for (const operation of operations.filter((candidate) => candidate.entity === "listMembers" && candidate.kind === "delete" && !deletedListIds.has(entityListId(candidate) || ""))) await api(`/api/members/${operation.id}`, { method: "DELETE" });
+  for (const operation of operations.filter((candidate) => candidate.entity === "invitations" && !deletedListIds.has(entityListId(candidate, listAssociations) || ""))) { if (operation.kind === "delete") await api(`/api/invitations/${operation.id}`, { method: "DELETE" }); else if (operation.kind === "update" && operation.data?.status) await api(`/api/invitations/${operation.id}`, { method: "PATCH", body: JSON.stringify({ status: operation.data.status }) }); else if (operation.kind === "update") { const link = operations.find((candidate) => candidate.entity === "invitations" && candidate.id === operation.id && candidate.links?.list); if (link?.links?.list) await api(`/api/lists/${link.links.list}/invitations`, { method: "POST", body: JSON.stringify(operation.data) }); } }
+  if (!ownerTransfer) for (const operation of operations.filter((candidate) => candidate.entity === "listMembers" && candidate.kind === "delete" && !deletedListIds.has(entityListId(candidate, listAssociations) || ""))) await api(`/api/members/${operation.id}`, { method: "DELETE" });
   emit(); dashboardLoaded = false; invitationsLoaded = false;
   if (user) await Promise.all([
     loadDashboard(true),
