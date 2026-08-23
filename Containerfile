@@ -5,6 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY app ./app
 COPY lib ./lib
+COPY shared ./shared
 COPY public ./public
 COPY next.config.ts postcss.config.mjs tsconfig.json ./
 # An unset public backend URL makes HTTP and WebSocket traffic same-origin.
@@ -36,6 +37,7 @@ COPY package.json package-lock.json ./
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=frontend /app/out ./out
 COPY backend ./backend
+COPY shared ./shared
 RUN mkdir -p /data && chown -R node:node /data
 
 USER node

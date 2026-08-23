@@ -3,6 +3,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import * as Automerge from "@automerge/automerge/slim";
 import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
+import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
 
 export interface User { id: string; email?: string | null; name?: string | null }
 type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "invitations" | "pinnedLists";
@@ -50,19 +51,14 @@ async function api(path: string, init: RequestInit = {}) {
   return value;
 }
 
-function isOfflineError(error: unknown) {
-  return error instanceof TypeError
-    || (error instanceof ApiError && error.status === 503 && error.code === "offline");
-}
-
 function cachedMetadata(key: string): any {
   if (typeof localStorage === "undefined") return null;
   try { return JSON.parse(localStorage.getItem(`smart-todos:${key}`) || "null"); } catch { return null; }
 }
 function cacheMetadata(key: string, value: any) { if (typeof localStorage !== "undefined") localStorage.setItem(`smart-todos:${key}`, JSON.stringify(value)); }
 function cacheScope() { return user?.id || "anonymous"; }
-function listCacheKey(slug: string) { return `list:${cacheScope()}:${slug}`; }
-function documentCacheKey(listId: string) { return `${cacheScope()}:${listId}`; }
+function listCacheKey(slug: string) { return scopedCacheKey("list", cacheScope(), slug); }
+function documentCacheKey(listId: string) { return scopedCacheKey("document", cacheScope(), listId); }
 
 function openDocumentDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -177,7 +173,7 @@ async function loadAuth() {
     cacheMetadata("auth:user", user);
     authError = null;
   } catch (error) {
-    if (isOfflineError(error)) {
+    if (mayUseOfflineFallback(error)) {
       user = cachedUser;
       authError = null;
     } else {
@@ -196,7 +192,7 @@ async function loadDashboard(force = false) {
     const result = await api("/api/lists"); dashboardIds = result.lists.map((list: any) => list.id);
     await Promise.all(result.lists.map(registerList)); cacheMetadata(`dashboard:${user?.id}`, result); dashboardLoaded = true;
   } catch (error) {
-    const cached = isOfflineError(error) ? cachedMetadata(`dashboard:${user?.id}`) : null;
+    const cached = mayUseOfflineFallback(error) ? cachedMetadata(`dashboard:${user?.id}`) : null;
     if (cached?.lists) { dashboardIds = cached.lists.map((list: any) => list.id); await Promise.all(cached.lists.map(registerList)); dashboardLoaded = true; dashboardError = null; }
     else dashboardError = error as Error;
   } finally { dashboardLoading = false; emit(); }
@@ -205,7 +201,7 @@ async function loadList(slug: string, force = false) {
   if ([...lists.values()].some((state) => state.metadata.slug === slug && state.metadata._full) && !force) return;
   try { const result = await api(`/api/lists/${encodeURIComponent(slug)}`); result.list._full = true; await registerList(result.list); cacheMetadata(listCacheKey(slug), result.list); emit(); }
   catch (error) {
-    const cached = isOfflineError(error) ? cachedMetadata(listCacheKey(slug)) : null;
+    const cached = mayUseOfflineFallback(error) ? cachedMetadata(listCacheKey(slug)) : null;
     if (cached) { await registerList(cached); emit(); }
     else {
       for (const [id, state] of lists) if (state.metadata.slug === slug) { state.socket?.close(1000, "List access denied"); lists.delete(id); }
