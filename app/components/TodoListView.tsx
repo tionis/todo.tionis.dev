@@ -38,6 +38,7 @@ import {
 } from "../../lib/classification";
 import { executeTransaction, canUserWrite, canUserView, transferListOwnership } from "../../lib/transactions";
 import { buildImportTemplateTransactions } from "../../lib/listTemplates";
+import { downloadListExport } from "../../lib/listExport";
 import { formatListTags, parseListTags, tagInputToList } from "../../lib/tags";
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
@@ -1237,6 +1238,16 @@ function SettingsPanel({
     }
   };
 
+  const handleExport = () => {
+    try {
+      downloadListExport(todoList);
+      addToast("List export downloaded", "success");
+    } catch (err) {
+      console.error("Failed to export list:", err);
+      setShowError("Failed to export this list. Please try again.");
+    }
+  };
+
   return (
     <Modal onClose={onClose} title="List Settings" maxWidth="lg">
       {showError && (
@@ -1322,6 +1333,25 @@ function SettingsPanel({
       {/* Danger Zone */}
       <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
         <h4 className="text-sm font-medium text-red-600 dark:text-red-400 mb-3">Advanced Actions</h4>
+
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4 mb-4">
+          <div className="flex items-start space-x-3">
+            <div className="flex-1">
+              <h5 className="text-sm font-medium text-emerald-800 dark:text-emerald-300 mb-1">
+                Export list data
+              </h5>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 mb-3">
+                Download a portable JSON backup with this list&apos;s settings, categories, todos, and classifier history.
+              </p>
+              <button
+                onClick={handleExport}
+                className="text-sm bg-emerald-600 text-white py-2 px-4 rounded hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+              >
+                Download Export
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4">
           <div className="flex items-start space-x-3">
