@@ -1,79 +1,143 @@
-# Smart Todos - Collaborative Todo Lists
+# Smart Todos
 
-A modern, collaborative todo list application built with Next.js and InstantDB. Features real-time collaboration, sublists/categories, flexible permissions, offline support, and PWA installability.
+A local-first collaborative grocery todo app built with Next.js, React, Automerge, and Tailwind. List content is edited offline in the browser, persisted in IndexedDB, and merged in real time by a small dedicated backend. Authentication uses a configurable OpenID Connect provider.
 
-## Features
+## Architecture
 
-- **Real-time Collaboration**: Multiple users can work on the same todo list simultaneously
-- **Sublists/Categories**: Organize todos with sublists for better structure
-- **Flexible Permissions**: Public, private, or members-only lists with granular control
-- **Invitation System**: Invite collaborators via email with role-based permissions
-- **Offline Support**: Works offline with data synchronization when back online
-- **PWA Support**: Installable as a native app on mobile and desktop
-- **Dark Mode**: Automatically follows system theme preference
-- **Magic Link Authentication**: Secure, passwordless login system
+- The Next.js frontend remains a static export served by the backend process in production.
+- Each list is an Automerge document containing categories, todos, and classifier history.
+- Browser documents are stored in IndexedDB and changes remain available offline.
+- The backend persists canonical Automerge files and broadcasts merged documents over WebSockets.
+- SQLite stores server-authoritative users, sessions, list metadata, permissions, members, invitations, and pins.
+- OIDC Authorization Code Flow with PKCE is handled by the backend. Login transactions are bound to the initiating browser, and browser sessions use opaque, hashed, HttpOnly cookies. Invitation matching only uses email claims for which the provider returns `email_verified: true`.
 
-## Getting Started
+Read-only clients receive canonical documents but cannot upload changes. Write access is checked during the WebSocket upgrade and again before accepting document data. List permissions and membership are not stored in client-editable CRDT data.
 
-First, run the development server:
+## Development
+
+Install dependencies and create a backend environment file:
+
+```bash
+npm install
+cp backend/.env.example .env
+```
+
+Register `http://localhost:3030/api/auth/callback` as an allowed callback at your OIDC provider, then set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and (for confidential clients) `OIDC_CLIENT_SECRET`.
+
+Run the frontend and backend in separate terminals:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev:backend
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-## Icon Generation
-
-When you update the main SVG icons, you can regenerate all the required PNG sizes for the PWA:
+The default development origins are `http://localhost:3000` for the frontend and `http://localhost:3030` for the backend. Build the frontend with:
 
 ```bash
-# Generate all icon sizes from public/icon.svg
-npm run generate-icons
-
-# Generate screenshot images from SVG screenshots
-npm run generate-screenshots
-
-# Generate both icons and screenshots
-npm run generate-assets
+NEXT_PUBLIC_BACKEND_URL=http://localhost:3030 npm run build
 ```
 
-The `generate-icons` script creates:
-- App icons in sizes: 72x72, 96x96, 128x128, 144x144, 152x152, 192x192, 384x384, 512x512
-- Apple touch icon: 180x180
+After a same-origin production build, `npm start` serves both `out/` and the backend on the configured port.
 
-## Scripts
+## Container deployment
 
-- `npm run dev` - Start development server with Turbopack
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
-- `npm run generate-icons` - Generate PNG icons from SVG
-- `npm run generate-screenshots` - Generate PNG screenshots from SVG
-- `npm run generate-assets` - Generate all icons and screenshots
+The production `Containerfile` builds the static frontend and packages it with the backend. One Node process serves the frontend, `/api/*`, and the `/sync` WebSocket endpoint on port 3030. The image is therefore a single deployment unit and does not need an in-container nginx, Caddy, or process supervisor.
 
-## Tech Stack
+GitHub Actions builds pull requests and publishes main-branch, commit-SHA, and release-tag images to `ghcr.io/tionis/todo.tionis.dev`. The `latest` tag follows `main`. Images are standard OCI images and can be pulled directly by Podman.
 
-- **Frontend**: Next.js 15, React 19, TypeScript
-- **Database**: InstantDB (real-time database with built-in auth)
-- **Styling**: Tailwind CSS 4
-- **PWA**: Service Worker, Web App Manifest
-- **Deployment**: Vercel-ready
+GitHub Container Registry packages are private when first published. Either make the package public or authenticate the production host before starting the Quadlet:
 
-## Learn More
+```bash
+podman login ghcr.io
+```
 
-- [Next.js Documentation](https://nextjs.org/docs)
-- [InstantDB Documentation](https://docs.instantdb.com/)
-- [PWA Documentation](https://web.dev/progressive-web-apps/)
+Run the image behind a TLS-terminating reverse proxy that forwards the complete origin, including WebSocket upgrades, to port 3030. Set `APP_ORIGIN` and `PUBLIC_URL` to the same external HTTPS origin and register its `/api/auth/callback` URL with the OIDC provider:
 
-## Deploy on Vercel
+```bash
+podman run --rm \
+  --name smart-todos \
+  --publish 127.0.0.1:3030:3030 \
+  --volume smart-todos-data:/data:U \
+  --env-file /etc/smart-todos.env \
+  ghcr.io/tionis/todo.tionis.dev:latest
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme).
+An equivalent Quadlet container unit is:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```ini
+[Unit]
+Description=Smart Todos
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=smart-todos
+Image=ghcr.io/tionis/todo.tionis.dev:latest
+AutoUpdate=registry
+EnvironmentFile=/etc/smart-todos.env
+PublishPort=127.0.0.1:3030:3030
+# :U gives the unprivileged node user ownership of a newly created volume.
+Volume=smart-todos-data:/data:U
+HealthCmd=node /app/backend/healthcheck.mjs
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=10s
+HealthOnFailure=kill
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+The corresponding production environment includes:
+
+```dotenv
+PUBLIC_URL=https://todo.tionis.dev
+APP_ORIGIN=https://todo.tionis.dev
+OIDC_ISSUER=https://your-provider.example/application/o/todo/
+OIDC_CLIENT_ID=smart-todos
+OIDC_CLIENT_SECRET=replace-me
+SECURE_COOKIES=true
+TRUST_PROXY=true
+```
+
+Only enable `TRUST_PROXY` when direct access to the backend is blocked and the trusted reverse proxy replaces `X-Forwarded-For`. Login initiation is limited per client and globally; `AUTH_LOGIN_LIMIT` controls the per-client ten-minute limit.
+
+For production rollouts, replace `latest` in the Quadlet with the tested `sha-<commit>` tag or an OCI digest. Keep the previous image reference available for rollback.
+
+The backend data directory contains `metadata.sqlite` (including its WAL files) and one `.automerge` file per list. Put `DATA_DIR` on persistent storage and back it up as a unit while the container is stopped, or use an atomic filesystem/volume snapshot. Test restoration before cutover.
+
+Automerge inputs and persisted documents are capped at 2 MB, documents at 10,000 total records, and imports at 4 MB. Untrusted Automerge parsing and merging runs in a memory-limited worker with a timeout and bounded queue. These controls protect the server and browser main thread from unbounded CRDT history, nested data, parser amplification, and oversized imports.
+
+Required backend configuration:
+
+| Variable | Purpose |
+| --- | --- |
+| `OIDC_ISSUER` | OIDC issuer URL used for discovery |
+| `OIDC_CLIENT_ID` | Registered relying-party client ID |
+| `OIDC_CLIENT_SECRET` | Client secret, when required by the provider |
+| `APP_ORIGIN` | Allowed browser origin |
+| `PUBLIC_URL` | Public backend URL used for the callback |
+| `DATA_DIR` | Persistent SQLite and Automerge storage |
+| `STATIC_DIR` | Static frontend directory; defaults to `./out` |
+| `TRUST_PROXY` | Trust the first `X-Forwarded-For` value for login rate limits; use only behind a trusted proxy |
+| `AUTH_LOGIN_LIMIT` | Login initiations allowed per client in ten minutes; defaults to `30` |
+
+See [backend/.env.example](backend/.env.example) for optional settings.
+
+## Moving from the previous service
+
+Before the old service is retired, list owners can open **List Settings → Download Export**. In the Automerge version, use **Import Export** on the dashboard. Version 1 exports restore list settings, categories and keyword hints, todos with completion/order/timestamps, and the complete classifier history. Imports are private to the importing user by default; sharing must be configured again.
+
+## Checks
+
+```bash
+npm run test:backend
+npm run lint
+npm run build
+```
+
+PWA assets can be regenerated with `npm run generate-assets` (ImageMagick is required).

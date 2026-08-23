@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { id, InstaQLEntity, User } from "@instantdb/react";
+import { id } from "../../lib/id";
 import { 
   DndContext, 
   closestCenter, 
@@ -23,7 +23,7 @@ import {
   useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { db } from '../../lib/db';
+import { db, type User } from '../../lib/db';
 import { copyToClipboard, getListUrl } from "../../lib/utils";
 import {
   classifyTodoText,
@@ -44,19 +44,36 @@ import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
 import Modal from './Modal';
 import { useToast } from './Toast';
-import type { AppSchema } from "../../lib/db";
+interface Todo {
+  id: string;
+  text: string;
+  done: boolean;
+  order: number;
+  sublist?: Sublist | null;
+  [key: string]: any;
+}
 
-type TodoList = InstaQLEntity<AppSchema, "todoLists", { 
-  owner: {}; 
-  todos: { sublist?: {} }; 
-  sublists: { todos: {} }; 
-  members: { user: {} };
-  invitations: { inviter: {} };
-  pins: { user: {} };
-  todoClassifications: { sublist?: {} };
-}>;
-type Todo = InstaQLEntity<AppSchema, "todos", { sublist?: {} }>;
-type Sublist = InstaQLEntity<AppSchema, "sublists", { todos: {} }>;
+interface Sublist {
+  id: string;
+  name: string;
+  order: number;
+  todos: Todo[];
+  [key: string]: any;
+}
+
+interface TodoList {
+  id: string;
+  name: string;
+  slug: string;
+  permission: string;
+  todos: Todo[];
+  sublists: Sublist[];
+  members: any[];
+  invitations: any[];
+  pins: any[];
+  todoClassifications: any[];
+  [key: string]: any;
+}
 
 interface CreateTodoResult {
   transactions: any[];
@@ -221,7 +238,7 @@ export default function TodoListView({ slug }: TodoListViewProps) {
       const userEmail = user.email.toLowerCase();
       
       // Find pending invitation for this user
-      const pendingInvitation = todoList.invitations.find(inv => 
+      const pendingInvitation = todoList.invitations.find((inv: any) =>
         inv.email.toLowerCase() === userEmail && inv.status === 'pending'
       );
       
@@ -281,10 +298,10 @@ export default function TodoListView({ slug }: TodoListViewProps) {
 
   // Check permissions using utility functions
   const isOwner = user && todoList.owner && user.id === todoList.owner.id;
-  const isMember = !!(user && todoList.members?.some((member) => member.user?.id === user.id));
+  const isMember = !!(user && todoList.members?.some((member: any) => member.user?.id === user.id));
   const canRead = canUserView(user, todoList, todoList.permission);
   const canWrite = canUserWrite(user, todoList, todoList.permission);
-  const currentUserPin = user ? todoList.pins?.find((pin) => pin.user?.id === user.id) : undefined;
+  const currentUserPin = user ? todoList.pins?.find((pin: any) => pin.user?.id === user.id) : undefined;
 
   if (!canRead) {
     if (!user) {
@@ -310,127 +327,19 @@ export default function TodoListView({ slug }: TodoListViewProps) {
 }
 
 function AuthRequired() {
-  const [sentEmail, setSentEmail] = useState("");
-
   return (
     <div className="font-mono min-h-screen flex justify-center items-center bg-white dark:bg-gray-900">
       <div className="max-w-md w-full p-4">
         <h1 className="text-2xl mb-4 text-center text-gray-900 dark:text-white">Authentication Required</h1>
         <p className="mb-4 text-center text-gray-600 dark:text-gray-400">This todo list requires authentication to view.</p>
-        {!sentEmail ? (
-          <EmailStep onSendEmail={setSentEmail} />
-        ) : (
-          <CodeStep sentEmail={sentEmail} />
-        )}
+        <button
+          onClick={() => db.auth.signIn()}
+          className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          Sign in with OIDC
+        </button>
       </div>
     </div>
-  );
-}
-
-function EmailStep({ onSendEmail }: { onSendEmail: (email: string) => void }) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const email = inputRef.current!.value;
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await db.auth.sendMagicCode({ email });
-      onSendEmail(email);
-    } catch (err: any) {
-      setError("Error sending code: " + (err.body?.message || err.message));
-      onSendEmail("");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
-          {error}
-        </div>
-      )}
-      <div>
-        <label htmlFor="email" className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-          Email
-        </label>
-        <input
-          ref={inputRef}
-          id="email"
-          type="email"
-          required
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-          placeholder="Enter your email"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      >
-        {isLoading ? "Sending..." : "Send Magic Code"}
-      </button>
-    </form>
-  );
-}
-
-function CodeStep({ sentEmail }: { sentEmail: string }) {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const code = inputRef.current!.value;
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      await db.auth.signInWithMagicCode({ email: sentEmail, code });
-    } catch (err: any) {
-      setError("Error signing in: " + (err.body?.message || err.message));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
-          {error}
-        </div>
-      )}
-      <div>
-        <label htmlFor="code" className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-          Verification Code
-        </label>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-          Enter the code sent to {sentEmail}
-        </p>
-        <input
-          ref={inputRef}
-          id="code"
-          type="text"
-          required
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-          placeholder="Enter verification code"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      >
-        {isLoading ? "Signing in..." : "Sign In"}
-      </button>
-    </form>
   );
 }
 

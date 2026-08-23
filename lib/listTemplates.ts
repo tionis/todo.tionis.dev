@@ -1,4 +1,4 @@
-import { id } from "@instantdb/react";
+import { id } from "./id";
 import { db } from "./db";
 import { normalizeItemText } from "./classification";
 import { formatListTags } from "./tags";

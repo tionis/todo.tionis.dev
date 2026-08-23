@@ -1,5 +1,4 @@
 // Common type definitions for the application
-import type { User } from "@instantdb/react";
 
 export interface TodoListPermission {
   permission: 'public-read' | 'public-write' | 'private-read' | 'private-write' | 'owner';

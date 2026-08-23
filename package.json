@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "dev:backend": "node --env-file=.env --watch backend/server.mjs",
+    "start:backend": "node backend/server.mjs",
+    "test:backend": "node --test backend/*.test.mjs",
     "build": "next build",
-    "start": "next start",
+    "start": "node backend/server.mjs",
     "lint": "eslint .",
-    "debug": "node debug-cli.js",
     "generate-icons": "npm run generate-icons:main && npm run generate-icons:apple",
     "generate-icons:main": "for size in 72 96 128 144 152 192 384 512; do convert public/icon.svg -resize ${size}x${size} public/icon-${size}.png; done",
     "generate-icons:apple": "convert public/icon.svg -resize 180x180 public/apple-icon-180.png",
@@ -15,15 +17,16 @@
     "generate-assets": "npm run generate-icons && npm run generate-screenshots"
   },
   "dependencies": {
+    "@automerge/automerge": "^3.4.1",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@instantdb/admin": "^0.22.185",
-    "@instantdb/react": "^0.22.185",
-    "commander": "^14.0.2",
-    "next": "16.2.6",
+    "better-sqlite3": "^12.4.1",
+    "next": "16.3.2",
+    "openid-client": "^6.8.7",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -31,6 +34,7 @@
     "@types/node": "^22",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.6.0",
@@ -39,7 +43,10 @@
     "typescript-eslint": "^8.59.2"
   },
   "overrides": {
-    "postcss": "8.5.14",
-    "uuid": "11.1.1"
+    "@babel/core": "8.0.1",
+    "brace-expansion": "5.0.9",
+    "postcss": "8.5.26",
+    "uuid": "11.1.1",
+    "nanoid": "3.3.18"
   }
 }

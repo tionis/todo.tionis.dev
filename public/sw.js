@@ -1,6 +1,5 @@
-const CACHE_NAME = 'smart-todos-v1';
-const STATIC_CACHE_NAME = 'smart-todos-static-v1';
-const DYNAMIC_CACHE_NAME = 'smart-todos-dynamic-v1';
+const STATIC_CACHE_NAME = 'smart-todos-static-v3';
+const DYNAMIC_CACHE_NAME = 'smart-todos-dynamic-v3';
 
 const staticAssets = [
   '/',
@@ -58,6 +57,28 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   if (!['http:', 'https:'].includes(url.protocol)) return;
 
+  // Authentication and list metadata are server-authoritative and must never
+  // be served from a cache. Keep this before the navigation/static branches so
+  // it also covers same-origin production deployments and auth callbacks.
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(
+      fetch(request)
+        .catch(() => {
+          return new Response(
+            JSON.stringify({
+              error: 'offline',
+              message: 'This request requires an internet connection'
+            }),
+            {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' }
+            }
+          );
+        })
+    );
+    return;
+  }
+
   // Handle navigation requests
   if (request.mode === 'navigate') {
     event.respondWith(
@@ -92,7 +113,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Handle static assets (cache-first strategy)
-  if (staticAssets.some(asset => url.pathname.startsWith(asset)) || 
+  if ((url.origin === self.location.origin && staticAssets.includes(url.pathname)) ||
       url.pathname.startsWith('/_next/') || 
       url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json)$/)) {
     event.respondWith(
@@ -122,26 +143,6 @@ self.addEventListener('fetch', (event) => {
           return new Response('Asset not available offline', { status: 404 });
         });
       })
-    );
-    return;
-  }
-
-  // Handle InstantDB and external API requests (network-first with graceful fallback)
-  if (url.hostname.includes('instantdb.com') || url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request)
-        .catch(() => {
-          return new Response(
-            JSON.stringify({
-              error: 'offline',
-              message: 'This request requires an internet connection'
-            }),
-            {
-              status: 503,
-              headers: { 'Content-Type': 'application/json' }
-            }
-          );
-        })
     );
     return;
   }

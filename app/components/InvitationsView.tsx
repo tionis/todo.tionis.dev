@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { id, User } from "@instantdb/react";
+import { id } from "../../lib/id";
 import { db } from "../../lib/db";
 import { getListUrl } from "../../lib/utils";
 import LoadingSpinner from './LoadingSpinner';
