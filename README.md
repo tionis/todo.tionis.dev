@@ -53,7 +53,7 @@ Keep the OIDC provider subject mode at Authentik's default **Based on the User's
 
 The backend implements Users, Groups, exact-match filtering, PUT updates, group-membership PATCH updates, deletion/deactivation, ServiceProviderConfig, ResourceTypes, and Schemas. Bulk operations and SCIM OAuth authentication are not advertised. Treat `SCIM_TOKEN` as an administrative provisioning credential and restrict `/scim/v2` to Authentik at the reverse proxy when possible.
 
-In the sharing dialog, owners can search provisioned users by friendly name, username, or email and provisioned groups by name. Users are added directly, groups receive a group grant, and unknown users can still receive verified-email invitations. Group grants behave like membership; the list's permission setting continues to decide whether members can write. List ownership always remains assigned to an individual account.
+In the sharing dialog, owners can use typo-tolerant search for provisioned users by friendly name, username (with or without `@`), or email and provisioned groups by name. Exact and prefix matches are ranked first. Users are added directly, groups receive a group grant, and unknown users can still receive verified-email invitations. Group grants behave like membership; the list's permission setting continues to decide whether members can write. List ownership always remains assigned to an individual account.
 
 SCIM deactivation revokes active sessions and group-derived access without deleting list ownership, direct memberships, or historical data. Group deletion revokes effective group access while retaining list-grant history for safe re-provisioning. An administrator should transfer lists owned by a deprovisioned account before permanently retiring that identity.
 

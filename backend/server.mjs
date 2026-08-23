@@ -14,6 +14,7 @@ import { accessFor as calculateAccess } from "./access.mjs";
 import { loadConfig } from "./config.mjs";
 import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
 import { DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
+import { rankDirectoryEntries } from "./directory-search.mjs";
 import { consumeInvitation } from "./invitations.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 import { createFixedWindowRateLimiter } from "./rate-limit.mjs";
@@ -390,24 +391,20 @@ async function handleApi(request, response, url) {
     const listId = decodeURIComponent(shareTargetsMatch[1]);
     const list = listRowById(listId);
     if (!accessFor(list, user).owner) return fail(response, 403, "Only the owner can search directory identities");
-    const query = (url.searchParams.get("q") || "").trim();
+    const query = (url.searchParams.get("q") || "").trim().slice(0, 128);
     if (query.length < 2) return json(response, 200, { users: [], groups: [] });
-    const users = database.prepare(`
+    const eligibleUsers = database.prepare(`
       SELECT id, email, name, username FROM users
       WHERE active = 1 AND id != ?
         AND NOT EXISTS (SELECT 1 FROM members WHERE members.list_id = ? AND members.user_id = users.id)
-        AND (instr(lower(COALESCE(username, '')), lower(?)) > 0
-          OR instr(lower(COALESCE(name, '')), lower(?)) > 0
-          OR instr(lower(COALESCE(email, '')), lower(?)) > 0)
-      ORDER BY COALESCE(name, username, email) LIMIT 12
-    `).all(list.owner_id, listId, query, query, query).map(userShape);
-    const groups = database.prepare(`
+    `).all(list.owner_id, listId).map(userShape);
+    const eligibleGroups = database.prepare(`
       SELECT id, external_id, display_name FROM directory_groups
       WHERE active = 1
         AND NOT EXISTS (SELECT 1 FROM list_group_grants WHERE list_id = ? AND group_id = directory_groups.id)
-        AND instr(lower(display_name), lower(?)) > 0
-      ORDER BY display_name LIMIT 12
-    `).all(listId, query).map((group) => ({ id: group.id, externalId: group.external_id, name: group.display_name }));
+    `).all(listId).map((group) => ({ id: group.id, externalId: group.external_id, name: group.display_name }));
+    const users = rankDirectoryEntries(eligibleUsers, query);
+    const groups = rankDirectoryEntries(eligibleGroups, query);
     json(response, 200, { users, groups });
     return;
   }
