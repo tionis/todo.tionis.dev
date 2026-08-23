@@ -10,7 +10,19 @@ type Operation = { entity: EntityName; id: string; kind: "update" | "delete" | "
 interface ListDocument { [key: string]: unknown; schemaVersion: 1; todos: Record<string, any>; categories: Record<string, any>; classifierHistory: Record<string, any> }
 interface ListState { metadata: any; document?: Automerge.Doc<ListDocument>; socket?: WebSocket; access?: "read" | "write" }
 
+class ApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 const apiBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "").replace(/\/$/, "");
+const MAX_DOCUMENT_BYTES = 2_000_000;
 const wasmReady = Automerge.initializeBase64Wasm(automergeWasmBase64);
 const listeners = new Set<() => void>();
 const lists = new Map<string, ListState>();
@@ -34,8 +46,13 @@ function snapshot() { return revision; }
 async function api(path: string, init: RequestInit = {}) {
   const response = await fetch(`${apiBase}${path}`, { credentials: "include", ...init, headers: { "Content-Type": "application/json", ...init.headers } });
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(value.error || `Request failed (${response.status})`);
+  if (!response.ok) throw new ApiError(value.message || value.error || `Request failed (${response.status})`, response.status, value.error);
   return value;
+}
+
+function isOfflineError(error: unknown) {
+  return error instanceof TypeError
+    || (error instanceof ApiError && error.status === 503 && error.code === "offline");
 }
 
 function cachedMetadata(key: string): any {
@@ -43,6 +60,9 @@ function cachedMetadata(key: string): any {
   try { return JSON.parse(localStorage.getItem(`smart-todos:${key}`) || "null"); } catch { return null; }
 }
 function cacheMetadata(key: string, value: any) { if (typeof localStorage !== "undefined") localStorage.setItem(`smart-todos:${key}`, JSON.stringify(value)); }
+function cacheScope() { return user?.id || "anonymous"; }
+function listCacheKey(slug: string) { return `list:${cacheScope()}:${slug}`; }
+function documentCacheKey(listId: string) { return `${cacheScope()}:${listId}`; }
 
 function openDocumentDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -56,19 +76,51 @@ async function readLocalDocument(listId: string): Promise<Automerge.Doc<ListDocu
   if (typeof indexedDB === "undefined") return undefined;
   const database = await openDocumentDatabase();
   return new Promise<Automerge.Doc<ListDocument> | undefined>((resolve, reject) => {
-    const request = database.transaction("documents", "readonly").objectStore("documents").get(listId);
-    request.onsuccess = () => resolve(request.result ? Automerge.load<ListDocument>(new Uint8Array(request.result)) : undefined);
+    const request = database.transaction("documents", "readonly").objectStore("documents").get(documentCacheKey(listId));
+    request.onsuccess = () => {
+      if (!request.result) return resolve(undefined);
+      const bytes = new Uint8Array(request.result);
+      resolve(bytes.byteLength <= MAX_DOCUMENT_BYTES ? Automerge.load<ListDocument>(bytes) : undefined);
+    };
     request.onerror = () => reject(request.error);
   }).finally(() => database.close());
 }
 async function writeLocalDocument(listId: string, document: Automerge.Doc<ListDocument>) {
   if (typeof indexedDB === "undefined") return;
+  const bytes = Automerge.save(document);
+  if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to store or synchronize safely");
   const database = await openDocumentDatabase();
   await new Promise<void>((resolve, reject) => {
-    const request = database.transaction("documents", "readwrite").objectStore("documents").put(Automerge.save(document), listId);
+    const request = database.transaction("documents", "readwrite").objectStore("documents").put(bytes, documentCacheKey(listId));
     request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
   });
   database.close();
+}
+async function clearLocalDocuments() {
+  if (typeof indexedDB === "undefined") return;
+  const database = await openDocumentDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const request = database.transaction("documents", "readwrite").objectStore("documents").clear();
+    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
+  });
+  database.close();
+}
+function clearMetadataForUser(userId: string) {
+  if (typeof localStorage === "undefined") return;
+  const prefixes = [
+    `smart-todos:dashboard:${userId}`,
+    `smart-todos:list:${userId}:`,
+  ];
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key && prefixes.some((prefix) => key.startsWith(prefix))) localStorage.removeItem(key);
+  }
+}
+function clearLoadedLists() {
+  for (const state of lists.values()) state.socket?.close(1000, "Account changed");
+  lists.clear();
+  dashboardLoaded = false;
+  dashboardIds = [];
 }
 function emptyDocument() { return Automerge.from<ListDocument>({ schemaVersion: 1, todos: {}, categories: {}, classifierHistory: {} }); }
 
@@ -85,14 +137,20 @@ function connectList(listId: string) {
   const socket = new WebSocket(websocketUrl(listId)); socket.binaryType = "arraybuffer"; state.socket = socket;
   socket.onmessage = async (event) => {
     if (typeof event.data === "string") { const message = JSON.parse(event.data); if (message.type === "ready") state.access = message.access; return; }
-    const remote = Automerge.load<ListDocument>(new Uint8Array(event.data));
+    const remoteBytes = new Uint8Array(event.data);
+    if (remoteBytes.byteLength > MAX_DOCUMENT_BYTES) { socket.close(1009, "Document too large"); return; }
+    const remote = Automerge.load<ListDocument>(remoteBytes);
     const local = state.document;
     const merged = state.access === "read" || !local ? remote : Automerge.merge(local, remote);
     const shouldUpload = state.access === "write" && !!local
       && Automerge.getHeads(merged).join(",") !== Automerge.getHeads(remote).join(",");
+    await writeLocalDocument(listId, merged);
     state.document = merged;
-    await writeLocalDocument(listId, state.document);
-    if (shouldUpload && socket.readyState === WebSocket.OPEN) socket.send(Automerge.save(state.document));
+    if (shouldUpload && socket.readyState === WebSocket.OPEN) {
+      const bytes = Automerge.save(state.document);
+      if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
+      socket.send(bytes);
+    }
     emit();
   };
   socket.onclose = () => { if (state.socket === socket) state.socket = undefined; setTimeout(() => connectList(listId), 2_000); };
@@ -108,12 +166,24 @@ async function registerList(metadata: any) {
 }
 
 async function loadAuth() {
+  const cachedUser = cachedMetadata("auth:user") as User | null;
   try {
     user = (await api("/api/auth/session")).user;
+    if (cachedUser?.id && cachedUser.id !== user?.id) {
+      clearMetadataForUser(cachedUser.id);
+      await clearLocalDocuments();
+      clearLoadedLists();
+    }
     cacheMetadata("auth:user", user);
-  } catch {
-    user = cachedMetadata("auth:user");
     authError = null;
+  } catch (error) {
+    if (isOfflineError(error)) {
+      user = cachedUser;
+      authError = null;
+    } else {
+      user = null;
+      authError = error as Error;
+    }
   }
   finally { authLoading = false; emit(); }
 }
@@ -126,15 +196,22 @@ async function loadDashboard(force = false) {
     const result = await api("/api/lists"); dashboardIds = result.lists.map((list: any) => list.id);
     await Promise.all(result.lists.map(registerList)); cacheMetadata(`dashboard:${user?.id}`, result); dashboardLoaded = true;
   } catch (error) {
-    const cached = cachedMetadata(`dashboard:${user?.id}`);
-    if (cached?.lists) { dashboardIds = cached.lists.map((list: any) => list.id); await Promise.all(cached.lists.map(registerList)); dashboardLoaded = true; }
+    const cached = isOfflineError(error) ? cachedMetadata(`dashboard:${user?.id}`) : null;
+    if (cached?.lists) { dashboardIds = cached.lists.map((list: any) => list.id); await Promise.all(cached.lists.map(registerList)); dashboardLoaded = true; dashboardError = null; }
     else dashboardError = error as Error;
   } finally { dashboardLoading = false; emit(); }
 }
 async function loadList(slug: string, force = false) {
   if ([...lists.values()].some((state) => state.metadata.slug === slug && state.metadata._full) && !force) return;
-  try { const result = await api(`/api/lists/${encodeURIComponent(slug)}`); result.list._full = true; await registerList(result.list); cacheMetadata(`list:${slug}`, result.list); emit(); }
-  catch (error) { const cached = cachedMetadata(`list:${slug}`); if (cached) { await registerList(cached); emit(); } else { lists.set(`error:${slug}`, { metadata: { slug, error } }); emit(); } }
+  try { const result = await api(`/api/lists/${encodeURIComponent(slug)}`); result.list._full = true; await registerList(result.list); cacheMetadata(listCacheKey(slug), result.list); emit(); }
+  catch (error) {
+    const cached = isOfflineError(error) ? cachedMetadata(listCacheKey(slug)) : null;
+    if (cached) { await registerList(cached); emit(); }
+    else {
+      for (const [id, state] of lists) if (state.metadata.slug === slug) { state.socket?.close(1000, "List access denied"); lists.delete(id); }
+      lists.set(`error:${slug}`, { metadata: { slug, error } }); emit();
+    }
+  }
 }
 async function loadInvitations(force = false) {
   if (invitationsLoading || (invitationsLoaded && !force) || !user) return;
@@ -227,7 +304,18 @@ async function transact(input: any) {
   }
   const contentByList = new Map<string, Operation[]>();
   for (const operation of operations.filter((candidate) => ["todos", "sublists", "todoClassifications"].includes(candidate.entity))) { const listId = entityListId(operation); if (!listId) throw new Error(`Cannot find list for ${operation.entity}/${operation.id}`); contentByList.set(listId, [...(contentByList.get(listId) || []), operation]); }
-  for (const [listId, content] of contentByList) { const state = lists.get(listId); if (!state) throw new Error("List is not loaded"); state.document = applyContentOperations(state.document || emptyDocument(), content); await writeLocalDocument(listId, state.document); if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") state.socket.send(Automerge.save(state.document)); }
+  for (const [listId, content] of contentByList) {
+    const state = lists.get(listId);
+    if (!state) throw new Error("List is not loaded");
+    const nextDocument = applyContentOperations(state.document || emptyDocument(), content);
+    await writeLocalDocument(listId, nextDocument);
+    state.document = nextDocument;
+    if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") {
+      const bytes = Automerge.save(state.document);
+      if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
+      state.socket.send(bytes);
+    }
+  }
   for (const operation of operations.filter((candidate) => candidate.entity === "todoLists")) { if (operation.kind === "update") await api(`/api/lists/${operation.id}`, { method: "PATCH", body: JSON.stringify(operation.data) }); if (operation.kind === "delete") await api(`/api/lists/${operation.id}`, { method: "DELETE" }); }
   const ownerTransfer = operations.find((candidate) => candidate.entity === "todoLists" && candidate.kind === "link" && candidate.links?.owner);
   if (ownerTransfer?.links?.owner) await api(`/api/lists/${ownerTransfer.id}/transfer`, { method: "POST", body: JSON.stringify({ userId: ownerTransfer.links.owner }) });
@@ -245,7 +333,18 @@ export const db = {
   useAuth() { useSyncExternalStore(subscribe, snapshot, () => 0); return { isLoading: authLoading, user, error: authError }; },
   auth: {
     signIn() { const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`; window.location.href = `${apiBase}/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`; },
-    async signOut() { await api("/api/auth/logout", { method: "POST" }); user = null; cacheMetadata("auth:user", null); dashboardLoaded = false; dashboardIds = []; lists.clear(); emit(); },
+    async signOut() {
+      await api("/api/auth/logout", { method: "POST" });
+      const signedOutUserId = user?.id;
+      clearLoadedLists();
+      if (signedOutUserId) clearMetadataForUser(signedOutUserId);
+      await clearLocalDocuments();
+      user = null;
+      cacheMetadata("auth:user", null);
+      invitations = [];
+      invitationsLoaded = false;
+      emit();
+    },
   },
   rooms: { usePresence(_room?: any, _options?: any) { return { peers: {}, publishPresence: presenceNoop, user: user ? { name: user.email, userId: user.id } : null }; } },
 };

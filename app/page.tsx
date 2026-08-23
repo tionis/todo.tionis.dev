@@ -6,7 +6,7 @@ import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
 import { executeTransaction } from "../lib/transactions";
 import { buildCreateListFromTemplateTransactions, type TemplateCopyOptions } from "../lib/listTemplates";
 import { parseListTags, tagInputToList } from "../lib/tags";
-import { buildListImportTransactions } from "../lib/listImport";
+import { buildListImportTransactions, MAX_IMPORT_FILE_BYTES } from "../lib/listImport";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
@@ -246,6 +246,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     event.target.value = "";
     if (!file) return;
     try {
+      if (file.size > MAX_IMPORT_FILE_BYTES) throw new Error("This export is too large to import safely");
       const exported = JSON.parse(await file.text());
       const slug = generateSlug();
       const { transactions } = buildListImportTransactions(exported, user.id, slug);

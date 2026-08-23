@@ -2,10 +2,20 @@ import crypto from "node:crypto";
 import http from "node:http";
 import * as Automerge from "@automerge/automerge";
 import { WebSocketServer } from "ws";
-import { beginLogin, clearSessionCookie, finishLogin, sessionCookie } from "./auth.mjs";
+import {
+  beginLogin,
+  clearSessionCookie,
+  finishLogin,
+  OIDC_BINDING_COOKIE,
+  oidcBindingCookie,
+  sessionCookie,
+} from "./auth.mjs";
 import { loadConfig } from "./config.mjs";
 import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
-import { DocumentStore } from "./documents.mjs";
+import { DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
+import { consumeInvitation } from "./invitations.mjs";
+import { mayExposeMemberIdentities } from "./privacy.mjs";
+import { createFixedWindowRateLimiter } from "./rate-limit.mjs";
 import { serveStatic } from "./static.mjs";
 
 const PERMISSIONS = new Set(["public-write", "public-read", "private-write", "private-read", "owner"]);
@@ -13,6 +23,8 @@ const config = loadConfig();
 const database = openDatabase(config.dataDir);
 const documents = new DocumentStore(config.dataDir);
 await documents.initialize();
+const allowLoginForClient = createFixedWindowRateLimiter({ limit: config.authLoginLimit, windowMs: 10 * 60_000 });
+const allowLoginGlobally = createFixedWindowRateLimiter({ limit: 2_000, windowMs: 10 * 60_000, maxKeys: 1 });
 
 function cookies(request) {
   return Object.fromEntries((request.headers.cookie || "").split(";").flatMap((part) => {
@@ -23,6 +35,15 @@ function cookies(request) {
 
 function requestUser(request) {
   return getUserForSession(database, cookies(request).smart_todos_session);
+}
+
+function requestAddress(request) {
+  if (config.trustProxy) {
+    const forwarded = request.headers["x-forwarded-for"];
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0];
+    if (first?.trim()) return first.trim();
+  }
+  return request.socket.remoteAddress || "unknown";
 }
 
 function setCors(request, response) {
@@ -99,8 +120,11 @@ function userShape(row) {
 
 function listShape(row, user, full = false) {
   const access = accessFor(row, user);
-  const owner = database.prepare("SELECT id, email, name FROM users WHERE id = ?").get(row.owner_id);
-  const members = full ? database.prepare(`
+  const exposeMemberIdentities = mayExposeMemberIdentities(access);
+  const owner = exposeMemberIdentities
+    ? database.prepare("SELECT id, email, name FROM users WHERE id = ?").get(row.owner_id)
+    : null;
+  const members = full && exposeMemberIdentities ? database.prepare(`
     SELECT members.id, members.role, members.added_at, users.id AS user_id,
       users.email, users.name
     FROM members JOIN users ON users.id = members.user_id
@@ -168,13 +192,25 @@ async function handleApi(request, response, url) {
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/auth/login") {
-    const target = await beginLogin(database, config, url.searchParams.get("returnTo") || "/");
-    response.writeHead(302, { Location: target.href });
+    if (!allowLoginForClient(requestAddress(request)) || !allowLoginGlobally("global")) {
+      response.setHeader("Retry-After", "600");
+      return fail(response, 429, "Too many login attempts; try again later");
+    }
+    const login = await beginLogin(
+      database,
+      config,
+      url.searchParams.get("returnTo") || "/",
+      cookies(request)[OIDC_BINDING_COOKIE],
+    );
+    response.writeHead(302, {
+      Location: login.authorizationUrl.href,
+      "Set-Cookie": oidcBindingCookie(config, login.browserBinding, login.expiresAt),
+    });
     response.end();
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/auth/callback") {
-    const session = await finishLogin(database, config, url);
+    const session = await finishLogin(database, config, url, cookies(request)[OIDC_BINDING_COOKIE]);
     response.writeHead(302, {
       Location: new URL(session.returnTo, config.appOrigin).href,
       "Set-Cookie": sessionCookie(config, session.sessionToken, session.expiresAt),
@@ -409,13 +445,7 @@ async function handleApi(request, response, url) {
     if (!invitation || !user.email || invitation.email.toLowerCase() !== user.email.toLowerCase()) return fail(response, 403, "Invitation access denied");
     const body = await readJson(request);
     if (!new Set(["accepted", "declined"]).has(body.status)) return fail(response, 400, "Invalid invitation status");
-    database.transaction(() => {
-      database.prepare("UPDATE invitations SET status = ? WHERE id = ?").run(body.status, invitation.id);
-      if (body.status === "accepted") {
-        database.prepare("INSERT OR IGNORE INTO members (id, list_id, user_id, role, added_at) VALUES (?, ?, ?, ?, ?)")
-          .run(crypto.randomUUID(), invitation.list_id, user.id, invitation.role, new Date().toISOString());
-      }
-    })();
+    consumeInvitation(database, invitation, user.id, body.status);
     json(response, 200, { ok: true });
     return;
   }
@@ -464,7 +494,7 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-const webSockets = new WebSocketServer({ noServer: true, maxPayload: 8_000_000 });
+const webSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_DOCUMENT_BYTES });
 const clientsByList = new Map();
 
 function broadcastDocument(listId, document) {
@@ -505,14 +535,20 @@ server.on("upgrade", (request, socket, head) => {
 
 webSockets.on("connection", async (webSocket) => {
   const { listId, access } = webSocket;
+  webSocket.pendingUpdates = 0;
   if (!clientsByList.has(listId)) clientsByList.set(listId, new Set());
   clientsByList.get(listId).add(webSocket);
   webSocket.send(JSON.stringify({ type: "ready", access: access.write ? "write" : "read" }));
   webSocket.send(Automerge.save(await documents.load(listId)));
 
   webSocket.on("message", async (data, isBinary) => {
+    if (!isBinary) return;
+    if (webSocket.pendingUpdates >= 4) {
+      webSocket.close(1008, "Too many pending updates");
+      return;
+    }
+    webSocket.pendingUpdates += 1;
     try {
-      if (!isBinary) return;
       const currentAccess = accessFor(listRowById(listId), getUserForSession(database, webSocket.sessionToken));
       if (!currentAccess.write) {
         webSocket.send(JSON.stringify({ type: "error", message: "This list is read-only" }));
@@ -522,7 +558,9 @@ webSockets.on("connection", async (webSocket) => {
       broadcastDocument(listId, merged);
     } catch (error) {
       console.error("Rejected Automerge update", error);
-      webSocket.send(JSON.stringify({ type: "error", message: "Invalid document update" }));
+      if (webSocket.readyState === 1) webSocket.send(JSON.stringify({ type: "error", message: "Invalid document update" }));
+    } finally {
+      webSocket.pendingUpdates -= 1;
     }
   });
   webSocket.on("close", () => {

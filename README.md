@@ -9,7 +9,7 @@ A local-first collaborative grocery todo app built with Next.js, React, Automerg
 - Browser documents are stored in IndexedDB and changes remain available offline.
 - The backend persists canonical Automerge files and broadcasts merged documents over WebSockets.
 - SQLite stores server-authoritative users, sessions, list metadata, permissions, members, invitations, and pins.
-- OIDC Authorization Code Flow with PKCE is handled by the backend. Browser sessions use opaque, hashed, HttpOnly cookies.
+- OIDC Authorization Code Flow with PKCE is handled by the backend. Login transactions are bound to the initiating browser, and browser sessions use opaque, hashed, HttpOnly cookies. Invitation matching only uses email claims for which the provider returns `email_verified: true`.
 
 Read-only clients receive canonical documents but cannot upload changes. Write access is checked during the WebSocket upgrade and again before accepting document data. List permissions and membership are not stored in client-editable CRDT data.
 
@@ -44,6 +44,12 @@ After a same-origin production build, `npm start` serves both `out/` and the bac
 The production `Containerfile` builds the static frontend and packages it with the backend. One Node process serves the frontend, `/api/*`, and the `/sync` WebSocket endpoint on port 3030. The image is therefore a single deployment unit and does not need an in-container nginx, Caddy, or process supervisor.
 
 GitHub Actions builds pull requests and publishes main-branch, commit-SHA, and release-tag images to `ghcr.io/tionis/todo.tionis.dev`. The `latest` tag follows `main`. Images are standard OCI images and can be pulled directly by Podman.
+
+GitHub Container Registry packages are private when first published. Either make the package public or authenticate the production host before starting the Quadlet:
+
+```bash
+podman login ghcr.io
+```
 
 Run the image behind a TLS-terminating reverse proxy that forwards the complete origin, including WebSocket upgrades, to port 3030. Set `APP_ORIGIN` and `PUBLIC_URL` to the same external HTTPS origin and register its `/api/auth/callback` URL with the OIDC provider:
 
@@ -95,9 +101,16 @@ OIDC_ISSUER=https://your-provider.example/application/o/todo/
 OIDC_CLIENT_ID=smart-todos
 OIDC_CLIENT_SECRET=replace-me
 SECURE_COOKIES=true
+TRUST_PROXY=true
 ```
 
-The backend data directory contains `metadata.sqlite` and one `.automerge` file per list. Put `DATA_DIR` on persistent storage and back it up as a unit.
+Only enable `TRUST_PROXY` when direct access to the backend is blocked and the trusted reverse proxy replaces `X-Forwarded-For`. Login initiation is limited per client and globally; `AUTH_LOGIN_LIMIT` controls the per-client ten-minute limit.
+
+For production rollouts, replace `latest` in the Quadlet with the tested `sha-<commit>` tag or an OCI digest. Keep the previous image reference available for rollback.
+
+The backend data directory contains `metadata.sqlite` (including its WAL files) and one `.automerge` file per list. Put `DATA_DIR` on persistent storage and back it up as a unit while the container is stopped, or use an atomic filesystem/volume snapshot. Test restoration before cutover.
+
+Automerge inputs and persisted documents are capped at 2 MB, documents at 10,000 total records, and imports at 4 MB. Untrusted Automerge parsing and merging runs in a memory-limited worker with a timeout and bounded queue. These controls protect the server and browser main thread from unbounded CRDT history, nested data, parser amplification, and oversized imports.
 
 Required backend configuration:
 
@@ -110,6 +123,8 @@ Required backend configuration:
 | `PUBLIC_URL` | Public backend URL used for the callback |
 | `DATA_DIR` | Persistent SQLite and Automerge storage |
 | `STATIC_DIR` | Static frontend directory; defaults to `./out` |
+| `TRUST_PROXY` | Trust the first `X-Forwarded-For` value for login rate limits; use only behind a trusted proxy |
+| `AUTH_LOGIN_LIMIT` | Login initiations allowed per client in ten minutes; defaults to `30` |
 
 See [backend/.env.example](backend/.env.example) for optional settings.
 
