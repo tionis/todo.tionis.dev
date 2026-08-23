@@ -137,10 +137,13 @@ export class DocumentStore {
     return document;
   }
 
-  async save(listId, document, serialized = serializeDocument(document)) {
+  async save(listId, document, serialized) {
+    validateListDocument(document);
+    const bytes = serialized ?? Automerge.save(document);
+    assertDocumentBytes(bytes);
     const filename = this.filename(listId);
     const temporary = `${filename}.${process.pid}.tmp`;
-    await fs.writeFile(temporary, serialized, { mode: 0o600 });
+    await fs.writeFile(temporary, bytes, { mode: 0o600 });
     await fs.rename(temporary, filename);
     this.cache.set(listId, document);
   }
@@ -163,6 +166,14 @@ export class DocumentStore {
     const document = serialized ? Automerge.load(serialized) : emptyListDocument();
     await this.save(listId, document, serialized);
     return document;
+  }
+
+  async change(listId, callback) {
+    return this.enqueue(listId, async () => {
+      const document = Automerge.change(await this.load(listId), callback);
+      await this.save(listId, document);
+      return document;
+    });
   }
 
   async delete(listId) {

@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import * as Automerge from "@automerge/automerge/slim";
 import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
+import { refreshFullListDetails } from "../shared/list-refresh-policy.mjs";
 
 export interface User { id: string; email?: string | null; name?: string | null }
 type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "invitations" | "pinnedLists";
@@ -318,7 +319,12 @@ async function transact(input: any) {
   for (const operation of operations.filter((candidate) => candidate.entity === "pinnedLists")) { const listId = operation.links?.list || [...lists.values()].find((state) => state.metadata.pins?.some((pin: any) => pin.id === operation.id))?.metadata.id; if (listId && operation.kind === "link") await api(`/api/lists/${listId}/pin`, { method: "POST" }); if (listId && operation.kind === "delete") await api(`/api/lists/${listId}/pin`, { method: "DELETE" }); }
   for (const operation of operations.filter((candidate) => candidate.entity === "invitations" && !deletedListIds.has(entityListId(candidate) || ""))) { if (operation.kind === "delete") await api(`/api/invitations/${operation.id}`, { method: "DELETE" }); else if (operation.kind === "update" && operation.data?.status) await api(`/api/invitations/${operation.id}`, { method: "PATCH", body: JSON.stringify({ status: operation.data.status }) }); else if (operation.kind === "update") { const link = operations.find((candidate) => candidate.entity === "invitations" && candidate.id === operation.id && candidate.links?.list); if (link?.links?.list) await api(`/api/lists/${link.links.list}/invitations`, { method: "POST", body: JSON.stringify(operation.data) }); } }
   if (!ownerTransfer) for (const operation of operations.filter((candidate) => candidate.entity === "listMembers" && candidate.kind === "delete" && !deletedListIds.has(entityListId(candidate) || ""))) await api(`/api/members/${operation.id}`, { method: "DELETE" });
-  emit(); dashboardLoaded = false; invitationsLoaded = false; if (user) await Promise.all([loadDashboard(true), loadInvitations(true)]);
+  emit(); dashboardLoaded = false; invitationsLoaded = false;
+  if (user) await Promise.all([
+    loadDashboard(true),
+    loadInvitations(true),
+    refreshFullListDetails(lists.values(), loadList),
+  ]);
 }
 
 const tx = new Proxy({}, { get(_target, entity: EntityName) { return new Proxy({}, { get(_entityTarget, entityId: string) { return { update(data: Record<string, any>) { return new TransactionBuilder({ entity, id: entityId, kind: "update", data }); }, delete() { return new TransactionBuilder({ entity, id: entityId, kind: "delete" }); }, link(links: Record<string, string>) { return new TransactionBuilder({ entity, id: entityId, kind: "link", links }); }, unlink(links: Record<string, string>) { return new TransactionBuilder({ entity, id: entityId, kind: "unlink", links }); } }; } }); } }) as any;

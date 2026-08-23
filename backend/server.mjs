@@ -405,10 +405,9 @@ async function handleApi(request, response, url) {
     const listId = decodeURIComponent(classifierResetMatch[1]);
     if (!accessFor(listRowById(listId), user).owner) return fail(response, 403, "Only the owner can reset classifier history");
     const resetAt = new Date().toISOString();
-    const document = Automerge.change(await documents.load(listId), (draft) => {
+    const document = await documents.change(listId, (draft) => {
       for (const id of Object.keys(draft.classifierHistory)) delete draft.classifierHistory[id];
     });
-    await documents.save(listId, document);
     database.prepare("UPDATE lists SET classifier_reset_at = ?, updated_at = ? WHERE id = ?")
       .run(resetAt, resetAt, listId);
     broadcastDocument(listId, document);
