@@ -1,3 +1,15 @@
+FROM node:20-bookworm-slim AS frontend
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY app ./app
+COPY lib ./lib
+COPY public ./public
+COPY next.config.ts postcss.config.mjs tsconfig.json ./
+# An unset public backend URL makes HTTP and WebSocket traffic same-origin.
+RUN npm run build
+
 FROM node:20-bookworm-slim AS dependencies
 
 WORKDIR /app
@@ -10,7 +22,11 @@ RUN apt-get update \
 
 FROM node:20-bookworm-slim
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=3030 \
+    DATA_DIR=/data \
+    STATIC_DIR=/app/out
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -18,10 +34,13 @@ RUN apt-get update \
 
 COPY package.json package-lock.json ./
 COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=frontend /app/out ./out
 COPY backend ./backend
 RUN mkdir -p /data && chown -R node:node /data
 
 USER node
-ENV HOST=0.0.0.0 DATA_DIR=/data
+VOLUME ["/data"]
 EXPOSE 3030
-CMD ["npm", "run", "start:backend"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["node", "backend/healthcheck.mjs"]
+CMD ["node", "backend/server.mjs"]

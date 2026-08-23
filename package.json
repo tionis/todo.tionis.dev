@@ -8,7 +8,7 @@
     "start:backend": "node backend/server.mjs",
     "test:backend": "node --test backend/*.test.mjs",
     "build": "next build",
-    "start": "next start",
+    "start": "node backend/server.mjs",
     "lint": "eslint .",
     "generate-icons": "npm run generate-icons:main && npm run generate-icons:apple",
     "generate-icons:main": "for size in 72 96 128 144 152 192 384 512; do convert public/icon.svg -resize ${size}x${size} public/icon-${size}.png; done",

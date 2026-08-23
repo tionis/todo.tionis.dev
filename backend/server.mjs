@@ -6,6 +6,7 @@ import { beginLogin, clearSessionCookie, finishLogin, sessionCookie } from "./au
 import { loadConfig } from "./config.mjs";
 import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
 import { DocumentStore } from "./documents.mjs";
+import { serveStatic } from "./static.mjs";
 
 const PERMISSIONS = new Set(["public-write", "public-read", "private-write", "private-read", "owner"]);
 const config = loadConfig();
@@ -451,7 +452,11 @@ const server = http.createServer(async (request, response) => {
   setCors(request, response);
   try {
     const url = new URL(request.url || "/", config.publicUrl);
-    await handleApi(request, response, url);
+    if (url.pathname.startsWith("/api/") || url.pathname === "/sync") {
+      await handleApi(request, response, url);
+    } else if (!await serveStatic(request, response, url, config.staticDir)) {
+      fail(response, 404, "Not found");
+    }
   } catch (error) {
     console.error(error);
     if (!response.headersSent) fail(response, error.status || 500, error.status ? error.message : "Internal server error");
@@ -528,7 +533,7 @@ webSockets.on("connection", async (webSocket) => {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`Smart Todos backend listening on http://${config.host}:${config.port}`);
+  console.log(`Smart Todos listening on http://${config.host}:${config.port}`);
 });
 
 function shutdown() {

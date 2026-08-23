@@ -24,6 +24,7 @@ export function loadConfig() {
     appOrigin,
     publicUrl,
     dataDir: path.resolve(process.env.DATA_DIR || "./data"),
+    staticDir: path.resolve(process.env.STATIC_DIR || "./out"),
     oidc: {
       issuer: url(required("OIDC_ISSUER"), "OIDC_ISSUER"),
       clientId: required("OIDC_CLIENT_ID"),

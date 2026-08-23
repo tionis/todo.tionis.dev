@@ -4,7 +4,7 @@ A local-first collaborative grocery todo app built with Next.js, React, Automerg
 
 ## Architecture
 
-- The Next.js frontend remains a static export.
+- The Next.js frontend remains a static export served by the backend process in production.
 - Each list is an Automerge document containing categories, todos, and classifier history.
 - Browser documents are stored in IndexedDB and changes remain available offline.
 - The backend persists canonical Automerge files and broadcasts merged documents over WebSockets.
@@ -37,9 +37,65 @@ The default development origins are `http://localhost:3000` for the frontend and
 NEXT_PUBLIC_BACKEND_URL=http://localhost:3030 npm run build
 ```
 
-## Production
+After a same-origin production build, `npm start` serves both `out/` and the backend on the configured port.
 
-Serve the static `out/` directory and reverse proxy `/api/*` plus `/sync` to the backend on the same public origin. Same-origin deployment is recommended because authentication uses secure HttpOnly cookies. Set both `APP_ORIGIN` and `PUBLIC_URL` to the public site origin when the backend is behind that proxy.
+## Container deployment
+
+The production `Containerfile` builds the static frontend and packages it with the backend. One Node process serves the frontend, `/api/*`, and the `/sync` WebSocket endpoint on port 3030. The image is therefore a single deployment unit and does not need an in-container nginx, Caddy, or process supervisor.
+
+GitHub Actions builds pull requests and publishes main-branch, commit-SHA, and release-tag images to `ghcr.io/tionis/todo.tionis.dev`. The `latest` tag follows `main`. Images are standard OCI images and can be pulled directly by Podman.
+
+Run the image behind a TLS-terminating reverse proxy that forwards the complete origin, including WebSocket upgrades, to port 3030. Set `APP_ORIGIN` and `PUBLIC_URL` to the same external HTTPS origin and register its `/api/auth/callback` URL with the OIDC provider:
+
+```bash
+podman run --rm \
+  --name smart-todos \
+  --publish 127.0.0.1:3030:3030 \
+  --volume smart-todos-data:/data:U \
+  --env-file /etc/smart-todos.env \
+  ghcr.io/tionis/todo.tionis.dev:latest
+```
+
+An equivalent Quadlet container unit is:
+
+```ini
+[Unit]
+Description=Smart Todos
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=smart-todos
+Image=ghcr.io/tionis/todo.tionis.dev:latest
+AutoUpdate=registry
+EnvironmentFile=/etc/smart-todos.env
+PublishPort=127.0.0.1:3030:3030
+# :U gives the unprivileged node user ownership of a newly created volume.
+Volume=smart-todos-data:/data:U
+HealthCmd=node /app/backend/healthcheck.mjs
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=10s
+HealthOnFailure=kill
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+The corresponding production environment includes:
+
+```dotenv
+PUBLIC_URL=https://todo.tionis.dev
+APP_ORIGIN=https://todo.tionis.dev
+OIDC_ISSUER=https://your-provider.example/application/o/todo/
+OIDC_CLIENT_ID=smart-todos
+OIDC_CLIENT_SECRET=replace-me
+SECURE_COOKIES=true
+```
 
 The backend data directory contains `metadata.sqlite` and one `.automerge` file per list. Put `DATA_DIR` on persistent storage and back it up as a unit.
 
@@ -53,6 +109,7 @@ Required backend configuration:
 | `APP_ORIGIN` | Allowed browser origin |
 | `PUBLIC_URL` | Public backend URL used for the callback |
 | `DATA_DIR` | Persistent SQLite and Automerge storage |
+| `STATIC_DIR` | Static frontend directory; defaults to `./out` |
 
 See [backend/.env.example](backend/.env.example) for optional settings.
 
