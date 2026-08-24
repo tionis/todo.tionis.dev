@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY app ./app
+COPY backend/directory-search.mjs ./backend/directory-search.mjs
 COPY lib ./lib
 COPY shared ./shared
 COPY public ./public
