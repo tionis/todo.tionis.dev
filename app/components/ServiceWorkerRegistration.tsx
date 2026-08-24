@@ -24,9 +24,6 @@ export default function ServiceWorkerRegistration() {
     }
 
     // Register service worker for offline functionality
-    if ('storage' in navigator && 'persist' in navigator.storage) {
-      void navigator.storage.persist();
-    }
     let reloading = false;
     let hadController = Boolean(navigator.serviceWorker.controller);
     const watchWorker = (worker: ServiceWorker | null) => {

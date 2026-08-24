@@ -11,10 +11,12 @@ async function fixture() {
   const publicDir = path.join(root, "public");
   const outDir = path.join(root, "out");
   await fs.mkdir(publicDir);
-  await fs.mkdir(outDir);
+  await fs.mkdir(path.join(outDir, "_next", "static", "media"), { recursive: true });
   await fs.copyFile(path.resolve("public/sw.js"), path.join(publicDir, "sw.js"));
   await fs.writeFile(path.join(outDir, "index.html"), '<script src="/_next/app.js"></script>');
   await fs.writeFile(path.join(outDir, "manifest.json"), '{"name":"Smart Todos"}');
+  await fs.writeFile(path.join(outDir, "_next", "static", "app.js"), "console.log('app')");
+  await fs.writeFile(path.join(outDir, "_next", "static", "media", "automerge.wasm"), "wasm");
   return { root, publicDir, outDir };
 }
 
@@ -25,7 +27,10 @@ test("generates a release-specific service worker", async () => {
     const firstWorker = await fs.readFile(path.join(value.outDir, "sw.js"), "utf8");
     assert.match(firstWorker, new RegExp(`CACHE_VERSION = '${firstRevision}'`));
     assert.match(firstWorker, /API_BASE = "https:\/\/api\.example"/);
-    assert.doesNotMatch(firstWorker, /__BUILD_REVISION__|__API_BASE__/);
+    assert.doesNotMatch(firstWorker, /__BUILD_REVISION__|__API_BASE__|__PRECACHE_ASSETS__/);
+    assert.match(firstWorker, /\/_next\/static\/media\/automerge\.wasm/);
+    assert.match(firstWorker, /PRECACHE_CACHE_NAME = `\$\{CACHE_PREFIX\}precache-/);
+    assert.match(firstWorker, /RUNTIME_ASSET_CACHE_NAME = `\$\{CACHE_PREFIX\}assets-/);
 
     await fs.writeFile(path.join(value.outDir, "index.html"), '<script src="/_next/app-v2.js"></script>');
     const secondRevision = await generateServiceWorker({ ...value, apiBase: "https://api.example/" });
@@ -47,6 +52,7 @@ test("waits for update approval and serves the cached shell offline", async () =
       addAll: async () => {},
       add: async () => {},
       put: async () => {},
+      match: async (request) => request === "/" ? new Response("cached shell") : undefined,
     };
     const caches = {
       open: async () => cache,
@@ -86,6 +92,79 @@ test("waits for update approval and serves the cached shell offline", async () =
       respondWith: (promise) => { navigationResponse = promise; },
     });
     assert.equal(await (await navigationResponse).text(), "cached shell");
+  } finally {
+    await fs.rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("activation removes only obsolete Smart Todos caches", async () => {
+  const value = await fixture();
+  try {
+    await generateServiceWorker({ ...value });
+    const source = await fs.readFile(path.join(value.outDir, "sw.js"), "utf8");
+    const handlers = new Map();
+    const deleted = [];
+    const self = {
+      location: { origin: "https://todo.example" },
+      clients: { claim: async () => {}, matchAll: async () => [] },
+      addEventListener: (name, handler) => handlers.set(name, handler),
+      skipWaiting: () => {},
+    };
+    const caches = {
+      keys: async () => ["smart-todos-precache-old", "smart-todos-assets-old", "smart-todos-dynamic-old", "another-app-cache"],
+      delete: async (name) => { deleted.push(name); return true; },
+      open: async () => ({ addAll: async () => {} }),
+    };
+    vm.runInNewContext(source, {
+      self, caches, fetch: async () => new Response(), indexedDB: {}, crypto,
+      URL, Response, Request, Headers, JSON, Promise, TypeError, console,
+    });
+
+    let activation;
+    handlers.get("activate")({ waitUntil: (promise) => { activation = promise; } });
+    await activation;
+    assert.deepEqual(deleted.sort(), ["smart-todos-assets-old", "smart-todos-dynamic-old", "smart-todos-precache-old"]);
+  } finally {
+    await fs.rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("does not runtime-cache unknown same-origin responses", async () => {
+  const value = await fixture();
+  try {
+    await generateServiceWorker({ ...value });
+    const source = await fs.readFile(path.join(value.outDir, "sw.js"), "utf8");
+    const handlers = new Map();
+    let cacheWrites = 0;
+    const self = {
+      location: { origin: "https://todo.example" },
+      clients: { claim: async () => {}, matchAll: async () => [] },
+      addEventListener: (name, handler) => handlers.set(name, handler),
+      skipWaiting: () => {},
+    };
+    const caches = {
+      open: async () => ({
+        addAll: async () => {},
+        match: async () => undefined,
+        put: async () => { cacheWrites += 1; },
+        keys: async () => [],
+        delete: async () => true,
+      }),
+      keys: async () => [],
+      delete: async () => true,
+    };
+    vm.runInNewContext(source, {
+      self, caches, fetch: async () => new Response("private"), indexedDB: {}, crypto,
+      URL, Response, Request, Headers, JSON, Promise, TypeError, console,
+    });
+
+    let responsePromise;
+    handlers.get("fetch")({
+      request: { method: "GET", mode: "cors", destination: "", url: "https://todo.example/private-export" },
+      respondWith: (promise) => { responsePromise = promise; },
+    });
+    assert.equal(await (await responsePromise).text(), "private");
+    assert.equal(cacheWrites, 0);
   } finally {
     await fs.rm(value.root, { recursive: true, force: true });
   }

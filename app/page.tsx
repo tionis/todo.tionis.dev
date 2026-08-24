@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { db, type User } from "../lib/db";
 import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
-import { executeTransaction } from "../lib/transactions";
+import { canUserWrite, executeTransaction } from "../lib/transactions";
 import { buildCreateListFromTemplateTransactions, type TemplateCopyOptions } from "../lib/listTemplates";
 import { parseListTags, tagInputToList } from "../lib/tags";
 import { buildListImportTransactions, MAX_IMPORT_FILE_BYTES } from "../lib/listImport";
 import { userDisplayName } from "../shared/identity.mjs";
-import { consumeLaunchAction } from "../lib/pwa";
+import { consumeLaunchAction, consumeStoredShare } from "../lib/pwa";
+import { createTodoTransaction } from "../lib/todoTransactions";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
@@ -109,13 +110,22 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [sharedTodoText, setSharedTodoText] = useState<string | null>(null);
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const launch = consumeLaunchAction(window.location.href);
     if (launch.action === "new") {
       setShowCreateModal(true);
-      window.history.replaceState(window.history.state, "", launch.nextUrl);
+    }
+    if (launch.action) window.history.replaceState(window.history.state, "", launch.nextUrl);
+    if (launch.action === "share") {
+      if (launch.sharedText) setSharedTodoText(launch.sharedText);
+      else if (launch.shareId) {
+        void consumeStoredShare(launch.shareId)
+          .then((text) => { if (text) setSharedTodoText(text); })
+          .catch((error) => console.error("Could not open shared content:", error));
+      }
     }
   }, []);
 
@@ -192,6 +202,22 @@ function AuthenticatedApp({ user }: { user: User }) {
   const visibleDashboardLists = activeTag
     ? selectedDashboardLists.filter((list) => parseListTags(list.tags).some((tag) => tag.toLowerCase() === activeTag.toLowerCase()))
     : selectedDashboardLists;
+  const writableLists = dashboardLists.filter((list) => canUserWrite(user, list, list.permission));
+
+  const addSharedTodo = async (listId: string, text: string) => {
+    const list = writableLists.find((candidate) => candidate.id === listId);
+    if (!list) return false;
+    const maxOrder = Math.max(0, ...list.todos.map((todo: any) => todo.order || 0));
+    const success = await executeTransaction(
+      createTodoTransaction(list.id, text, maxOrder + 1),
+      "Failed to add shared todo",
+    );
+    if (success) {
+      setSharedTodoText(null);
+      window.location.hash = `/list/${list.slug}`;
+    }
+    return success;
+  };
 
   const createNewList = async ({ name, sourceListId, tags, options }: CreateListPayload) => {
     const slug = generateSlug();
@@ -269,14 +295,14 @@ function AuthenticatedApp({ user }: { user: User }) {
   };
 
   return (
-    <div className="font-mono min-h-screen p-8 bg-gray-50 dark:bg-slate-900">
+    <div className="font-mono min-h-screen p-4 sm:p-8 bg-gray-50 dark:bg-slate-900">
       <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="tracking-wide text-4xl text-gray-300 mb-2">Your Todo Lists</h1>
             <p className="text-gray-500">Welcome back, {userDisplayName(user)}</p>
           </div>
-          <div className="flex space-x-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             <input
               ref={importInputRef}
               type="file"
@@ -422,6 +448,15 @@ function AuthenticatedApp({ user }: { user: User }) {
             onClose={() => setShowCreateModal(false)}
             onCreate={createNewList}
             availableLists={dashboardLists}
+          />
+        )}
+
+        {sharedTodoText && (
+          <ShareTodoModal
+            initialText={sharedTodoText}
+            lists={writableLists}
+            onAdd={addSharedTodo}
+            onClose={() => setSharedTodoText(null)}
           />
         )}
 
@@ -775,6 +810,68 @@ function CreateListModal({
           >
             Cancel
           </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ShareTodoModal({
+  initialText,
+  lists,
+  onAdd,
+  onClose,
+}: {
+  initialText: string;
+  lists: any[];
+  onAdd: (listId: string, text: string) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState(initialText);
+  const [listId, setListId] = useState(lists[0]?.id || "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!listId || !text.trim() || saving) return;
+    setSaving(true);
+    const success = await onAdd(listId, text.trim());
+    if (!success) setSaving(false);
+  };
+
+  return (
+    <Modal onClose={onClose} title="Add shared todo" maxWidth="md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="shared-todo-text">Todo</label>
+          <textarea
+            id="shared-todo-text"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            maxLength={20_000}
+            rows={4}
+            autoFocus
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          />
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="shared-todo-list">List</label>
+          <select
+            id="shared-todo-list"
+            value={listId}
+            onChange={(event) => setListId(event.target.value)}
+            disabled={lists.length === 0}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          >
+            {lists.length === 0 && <option value="">No writable lists available</option>}
+            {lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-3">
+          <button type="submit" disabled={!listId || !text.trim() || saving} className="flex-1 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50">
+            {saving ? "Adding…" : "Add Todo"}
+          </button>
+          <button type="button" onClick={onClose} className="flex-1 rounded bg-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-400 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
         </div>
       </form>
     </Modal>

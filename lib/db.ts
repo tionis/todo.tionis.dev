@@ -340,6 +340,14 @@ async function loadUserOutbox() {
   await flushOutbox();
 }
 
+async function resumeOutboxSync() {
+  if (!user || !outboxLoaded) return;
+  if (flushPromise) await flushPromise;
+  outbox = await readOutbox();
+  emit();
+  await flushOutbox();
+}
+
 async function loadAuth() {
   const cachedUser = cachedMetadata("auth:user") as User | null;
   const lastUser = (cachedMetadata("auth:last-user") || cachedUser) as User | null;
@@ -367,7 +375,20 @@ async function loadAuth() {
   emit();
 }
 if (typeof window !== "undefined") void loadAuth();
-if (typeof window !== "undefined") window.addEventListener("online", () => { void flushOutbox(); });
+if (typeof window !== "undefined") {
+  let lastResumeAt = 0;
+  const resume = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastResumeAt < 15_000) return;
+    lastResumeAt = now;
+    void resumeOutboxSync();
+  };
+  window.addEventListener("online", () => resume(true));
+  window.addEventListener("focus", () => resume());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") resume();
+  });
+}
 
 async function loadDashboard(force = false) {
   if (dashboardLoading || (dashboardLoaded && !force)) return;
@@ -654,7 +675,7 @@ export const db = {
     useSyncExternalStore(subscribe, snapshot, () => 0);
     return { ...summarizeOutbox(outbox, outboxSyncing), errors: outbox.filter((command) => command.status === "rejected").map((command) => command.error || "Server rejected a queued change") };
   },
-  async syncNow() { await flushOutbox(); },
+  async syncNow() { await resumeOutboxSync(); },
   async refreshAfterBackgroundSync() {
     if (!user) return;
     outbox = await readOutbox();

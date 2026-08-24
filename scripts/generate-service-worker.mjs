@@ -14,13 +14,14 @@ async function filesUnder(root, directory = root) {
   return files;
 }
 
-export function renderServiceWorker(template, { revision, apiBase = "" }) {
-  if (!template.includes("__BUILD_REVISION__") || !template.includes("__API_BASE__")) {
+export function renderServiceWorker(template, { revision, apiBase = "", precacheAssets = [] }) {
+  if (!template.includes("__BUILD_REVISION__") || !template.includes("__API_BASE__") || !template.includes("__PRECACHE_ASSETS__")) {
     throw new Error("Service-worker template placeholders are missing");
   }
   return template
     .replaceAll("__BUILD_REVISION__", revision)
-    .replace("__API_BASE__", JSON.stringify(apiBase.replace(/\/$/, "")));
+    .replace("__API_BASE__", JSON.stringify(apiBase.replace(/\/$/, "")))
+    .replace("__PRECACHE_ASSETS__", JSON.stringify(precacheAssets));
 }
 
 export async function generateServiceWorker({
@@ -40,7 +41,10 @@ export async function generateServiceWorker({
     hash.update("\0");
   }
   const revision = hash.digest("hex").slice(0, 16);
-  const worker = renderServiceWorker(template, { revision, apiBase });
+  const precacheAssets = filenames
+    .filter((filename) => filename.startsWith(`_next${path.sep}static${path.sep}`))
+    .map((filename) => `/${filename.split(path.sep).join("/")}`);
+  const worker = renderServiceWorker(template, { revision, apiBase, precacheAssets });
   await fs.writeFile(path.join(outDir, "sw.js"), worker);
   return revision;
 }

@@ -3,8 +3,18 @@
 // release, even when this source file did not otherwise change.
 const CACHE_VERSION = '__BUILD_REVISION__';
 const API_BASE = __API_BASE__;
-const STATIC_CACHE_NAME = `smart-todos-static-${CACHE_VERSION}`;
-const DYNAMIC_CACHE_NAME = `smart-todos-dynamic-${CACHE_VERSION}`;
+const BUILD_ASSETS = __PRECACHE_ASSETS__;
+const CACHE_PREFIX = 'smart-todos-';
+const PRECACHE_CACHE_NAME = `${CACHE_PREFIX}precache-${CACHE_VERSION}`;
+const RUNTIME_ASSET_CACHE_NAME = `${CACHE_PREFIX}assets-${CACHE_VERSION}`;
+const NAVIGATION_CACHE_NAME = `${CACHE_PREFIX}navigation-${CACHE_VERSION}`;
+const RUNTIME_ASSET_CACHE_LIMIT = 64;
+const NAVIGATION_CACHE_LIMIT = 32;
+const RUNTIME_ASSET_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const NAVIGATION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const SHARE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const CACHED_AT_HEADER = 'X-Smart-Todos-Cached-At';
+const CACHEABLE_DESTINATIONS = new Set(['script', 'style', 'image', 'font']);
 
 const staticAssets = [
   '/',
@@ -13,22 +23,14 @@ const staticAssets = [
   '/icon-512.png',
   '/apple-icon-180.png',
   '/favicon.ico',
-  // Note: Next.js assets will be cached dynamically
+  ...BUILD_ASSETS,
 ];
 
 // Install event - cache static resources
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE_NAME)
-      .then(async (cache) => {
-        await cache.addAll(staticAssets);
-        const shell = await fetch('/');
-        const html = await shell.clone().text();
-        const assetUrls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
-          .map((match) => match[1])
-          .filter((value) => value.startsWith('/_next/') || /\.(?:js|css|woff2?)$/.test(value));
-        await Promise.allSettled([...new Set(assetUrls)].map((url) => cache.add(url)));
-      })
+    caches.open(PRECACHE_CACHE_NAME)
+      .then((cache) => cache.addAll(staticAssets))
   );
 });
 
@@ -38,7 +40,10 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== STATIC_CACHE_NAME && cacheName !== DYNAMIC_CACHE_NAME) {
+          if (cacheName.startsWith(CACHE_PREFIX) &&
+              cacheName !== PRECACHE_CACHE_NAME &&
+              cacheName !== RUNTIME_ASSET_CACHE_NAME &&
+              cacheName !== NAVIGATION_CACHE_NAME) {
             return caches.delete(cacheName);
           }
         })
@@ -56,10 +61,39 @@ self.addEventListener('message', (event) => {
   }
 });
 
+async function putBounded(cacheName, request, response, limit) {
+  const cache = await caches.open(cacheName);
+  const headers = new Headers(response.headers);
+  headers.set(CACHED_AT_HEADER, Date.now().toString());
+  await cache.put(request, new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  }));
+  const keys = await cache.keys();
+  await Promise.all(keys.slice(0, Math.max(0, keys.length - limit)).map((key) => cache.delete(key)));
+}
+
+async function matchFresh(cacheName, request, maxAgeMs) {
+  const cache = await caches.open(cacheName);
+  const response = await cache.match(request);
+  if (!response) return undefined;
+  const cachedAt = Number(response.headers.get(CACHED_AT_HEADER));
+  if (!cachedAt || Date.now() - cachedAt <= maxAgeMs) return response;
+  await cache.delete(request);
+  return undefined;
+}
+
 // Fetch event - implement cache strategies
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  const isSameOrigin = url.origin === self.location.origin;
+
+  if (isSameOrigin && request.method === 'POST' && url.pathname === '/share-target') {
+    event.respondWith(handleShareTargetRequest(request));
+    return;
+  }
 
   // Only handle GET requests and supported schemes
   if (request.method !== 'GET') return;
@@ -68,7 +102,6 @@ self.addEventListener('fetch', (event) => {
   // Authentication and list metadata are server-authoritative and must never
   // be served from a cache. Keep this before the navigation/static branches so
   // it also covers same-origin production deployments and auth callbacks.
-  const isSameOrigin = url.origin === self.location.origin;
   const apiUrl = new URL(`${API_BASE || self.location.origin}/api/`);
   const isApiRequest = url.origin === apiUrl.origin && url.pathname.startsWith(apiUrl.pathname);
   if (isApiRequest) {
@@ -94,15 +127,11 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .then((response) => {
+        .then(async (response) => {
           // Cache successful navigation responses
-          if (response.ok) {
+          if (response.ok && !url.search) {
             const responseClone = response.clone();
-            caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone).catch((error) => {
-                console.warn('Failed to cache navigation response:', error);
-              });
-            }).catch((error) => {
+            await putBounded(NAVIGATION_CACHE_NAME, request, responseClone, NAVIGATION_CACHE_LIMIT).catch((error) => {
               console.warn('Failed to open cache for navigation:', error);
             });
           }
@@ -110,13 +139,13 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => {
           // Return cached page or offline fallback
-          return caches.match(request)
+          return matchFresh(NAVIGATION_CACHE_NAME, request, NAVIGATION_CACHE_MAX_AGE_MS)
             .then((cachedResponse) => {
               if (cachedResponse) {
                 return cachedResponse;
               }
               // Return the main page for hash routing
-              return caches.match('/');
+              return caches.open(PRECACHE_CACHE_NAME).then((cache) => cache.match('/'));
             });
         })
     );
@@ -124,63 +153,104 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Handle static assets (cache-first strategy)
-  if (isSameOrigin && (staticAssets.includes(url.pathname) ||
-      url.pathname.startsWith('/_next/') ||
-      url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json)$/))) {
+  if (isSameOrigin && staticAssets.includes(url.pathname)) {
     event.respondWith(
-      caches.match(request).then((cachedResponse) => {
+      caches.open(PRECACHE_CACHE_NAME).then((cache) => cache.match(request)).then((cachedResponse) => {
         if (cachedResponse) {
           return cachedResponse;
         }
-        
-        return fetch(request).then((response) => {
-          if (response.ok) {
-            const responseClone = response.clone();
-            caches.open(STATIC_CACHE_NAME).then((cache) => {
-              cache.put(request, responseClone).catch((error) => {
-                console.warn('Failed to cache static asset:', error);
-              });
-            }).catch((error) => {
-              console.warn('Failed to open cache for static assets:', error);
-            });
-          }
-          return response;
-        }).catch(() => {
-          // For offline, try to return a basic response for essential assets
-          if (url.pathname === '/' || url.pathname.includes('.html')) {
-            return caches.match('/');
-          }
-          // For other assets, return a 404 response
-          return new Response('Asset not available offline', { status: 404 });
-        });
+        return fetch(request).catch(() => new Response('Asset not available offline', { status: 404 }));
       })
     );
     return;
   }
 
-  // Default: network-first for everything else
+  if (isSameOrigin && (url.pathname.startsWith('/_next/') || CACHEABLE_DESTINATIONS.has(request.destination))) {
+    event.respondWith(
+      matchFresh(RUNTIME_ASSET_CACHE_NAME, request, RUNTIME_ASSET_CACHE_MAX_AGE_MS)
+        .then((cachedResponse) => cachedResponse || fetch(request).then(async (response) => {
+          if (response.ok) {
+            await putBounded(RUNTIME_ASSET_CACHE_NAME, request, response.clone(), RUNTIME_ASSET_CACHE_LIMIT)
+              .catch((error) => console.warn('Failed to cache runtime asset:', error));
+          }
+          return response;
+        }))
+        .catch(() => new Response('Asset not available offline', { status: 404 }))
+    );
+    return;
+  }
+
+  // Unknown same-origin requests stay network-only so future endpoints and
+  // downloads cannot silently become part of the offline cache.
   if (!isSameOrigin) return;
 
   event.respondWith(
     fetch(request)
-      .then((response) => {
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(DYNAMIC_CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone).catch((error) => {
-              console.warn('Failed to cache default response:', error);
-            });
-          }).catch((error) => {
-            console.warn('Failed to open cache for default responses:', error);
-          });
-        }
-        return response;
-      })
-      .catch(() => {
-        return caches.match(request);
-      })
+      .catch(() => new Response('This resource is unavailable offline', { status: 503 }))
   );
 });
+
+function openShareDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('smart-todos-pwa', 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('shares')) {
+        request.result.createObjectStore('shares', { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storeSharedText(text) {
+  const database = await openShareDatabase();
+  try {
+    const id = crypto.randomUUID();
+    const entries = await outboxRequest(database.transaction('shares', 'readonly').objectStore('shares').getAll());
+    const cutoff = Date.now() - SHARE_MAX_AGE_MS;
+    const retainedIds = new Set(entries
+      .filter((entry) => entry.createdAt >= cutoff)
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, 19)
+      .map((entry) => entry.id));
+    const transaction = database.transaction('shares', 'readwrite');
+    const store = transaction.objectStore('shares');
+    for (const entry of entries.filter((candidate) => !retainedIds.has(candidate.id))) store.delete(entry.id);
+    store.put({ id, text, createdAt: Date.now() });
+    await new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    return id;
+  } finally {
+    database.close();
+  }
+}
+
+async function handleShareTargetRequest(request) {
+  try {
+    const formData = await request.formData();
+    const value = (name) => {
+      const item = formData.get(name);
+      return typeof item === 'string' ? item.trim() : '';
+    };
+    const parts = [];
+    for (const item of [value('title'), value('text'), value('url')]) {
+      if (item && !parts.includes(item)) parts.push(item);
+    }
+    const text = parts.join('\n').slice(0, 20_000);
+    const shareId = await storeSharedText(text);
+    const destination = new URL('/', self.location.origin);
+    destination.searchParams.set('action', 'share');
+    destination.searchParams.set('shareId', shareId);
+    return Response.redirect(destination.href, 303);
+  } catch (error) {
+    console.error('Could not receive shared content:', error);
+    return new Response('Could not receive shared content', { status: 500 });
+  }
+}
 
 function openOutboxDatabase() {
   return new Promise((resolve, reject) => {

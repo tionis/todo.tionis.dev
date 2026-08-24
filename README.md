@@ -20,6 +20,8 @@ After a successful online sign-in, the dashboard eagerly downloads every owned, 
 
 Todo and category edits merge through Automerge. Server-authoritative changes—including creating/importing, renaming, configuring, archiving or deleting lists; pins; invitations; direct members; group grants; ownership transfers; and classifier resets—are applied optimistically and persisted in an IndexedDB outbox. They replay in order when connectivity returns. The status banner distinguishes locally saved work, active synchronization, and changes rejected by current server permissions. Classifier resets carry their original reset timestamp so samples created later are not removed by delayed delivery.
 
+Production builds generate a release-specific service worker that atomically precaches the complete exported application shell, including the Automerge WebAssembly runtime. The immutable precache is isolated from bounded runtime caches, and activation only removes obsolete Smart Todos caches. The installed app can privately receive shared text and links through a short-lived IndexedDB handoff, retries queued work through Background Sync where supported, and also retries on reconnect, focus, and foreground visibility for browsers without Background Sync.
+
 Authentication and final authorization remain online operations. A first-time user cannot sign in offline, accepting an invitation cannot expose a previously inaccessible list until the server approves it, and revoked access cannot be learned while a device is disconnected. Cached data is cleared when the authenticated account changes or signs out.
 
 ## Development
@@ -166,8 +168,10 @@ Before the old service is retired, list owners can open **List Settings → Down
 npm test
 npm run lint
 npm run build
+npx playwright install chromium firefox webkit
+npm run test:pwa:e2e
 ```
 
-`npm test` runs the backend integration suite plus TypeScript-level transaction-builder tests. The container workflow requires all three checks to pass before publishing an image.
+`npm test` runs the backend integration suite plus TypeScript-level transaction-builder tests. The Playwright matrix exercises Chromium, Firefox, and WebKit; verifies the precache (including WASM), Chromium installability, a real worker upgrade, private POST sharing, offline startup, and queued-change persistence across a reload. The container workflow requires these checks to pass before publishing an image. PWA-sensitive releases should also complete the [physical-device checklist](docs/pwa-release-checklist.md).
 
-PWA assets can be regenerated with `npm run generate-assets` (ImageMagick is required).
+PWA assets can be regenerated with `npm run generate-assets`. Icon generation requires ImageMagick; promotional screenshots are reproducible captures of a mocked, authenticated production build and require Playwright Chromium.

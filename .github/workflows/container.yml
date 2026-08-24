@@ -45,6 +45,12 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Install browsers for PWA tests
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Run browser PWA tests
+        run: npm run test:pwa:e2e
+
   pull-request-build:
     if: github.event_name == 'pull_request'
     needs: validate

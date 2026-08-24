@@ -8,6 +8,7 @@
     "start:backend": "node backend/server.mjs",
     "test:backend": "node --test backend/*.test.mjs",
     "test:unit": "tsx --test tests/*.test.ts",
+    "test:pwa:e2e": "playwright test",
     "test": "npm run test:backend && npm run test:unit",
     "build": "next build && node scripts/generate-service-worker.mjs",
     "start": "node backend/server.mjs",
@@ -15,7 +16,7 @@
     "generate-icons": "npm run generate-icons:main && npm run generate-icons:apple",
     "generate-icons:main": "for size in 72 96 128 144 152 192 384 512; do convert public/icon.svg -resize ${size}x${size} public/icon-${size}.png; done",
     "generate-icons:apple": "convert public/icon.svg -resize 180x180 public/apple-icon-180.png",
-    "generate-screenshots": "convert public/screenshot-mobile.svg -resize 640x1136 public/screenshot-mobile.png && convert public/screenshot-desktop.svg -resize 1280x800 public/screenshot-desktop.png",
+    "generate-screenshots": "npm run build && node scripts/generate-pwa-screenshots.mjs",
     "generate-assets": "npm run generate-icons && npm run generate-screenshots"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^22",
     "@types/react": "^19.2.7",

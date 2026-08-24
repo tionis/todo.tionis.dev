@@ -8,6 +8,7 @@ COPY backend/directory-search.mjs ./backend/directory-search.mjs
 COPY lib ./lib
 COPY shared ./shared
 COPY public ./public
+COPY scripts ./scripts
 COPY next.config.ts postcss.config.mjs tsconfig.json ./
 # An unset public backend URL makes HTTP and WebSocket traffic same-origin.
 RUN npm run build

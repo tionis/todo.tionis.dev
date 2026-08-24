@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import ServiceWorkerRegistration from "./components/ServiceWorkerRegistration";
 import ToastContainer from "./components/Toast";
 import OfflineIndicator from "./components/OfflineIndicator";
+import PwaControls from "./components/PwaControls";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -56,6 +57,7 @@ export default function RootLayout({
           <ServiceWorkerRegistration />
         </Suspense>
         <OfflineIndicator />
+        <PwaControls />
         <ToastContainer />
         {children}
       </body>
