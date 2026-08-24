@@ -21,6 +21,12 @@ export function emptyListDocument() {
   });
 }
 
+export function deleteClassifierHistoryThrough(document, resetAt) {
+  for (const [id, sample] of Object.entries(document.classifierHistory)) {
+    if (!sample.createdAt || sample.createdAt <= resetAt) delete document.classifierHistory[id];
+  }
+}
+
 function assertRecord(value, field) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${field} must be an object`);

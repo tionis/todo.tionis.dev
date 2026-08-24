@@ -1,5 +1,5 @@
-const STATIC_CACHE_NAME = 'smart-todos-static-v3';
-const DYNAMIC_CACHE_NAME = 'smart-todos-dynamic-v3';
+const STATIC_CACHE_NAME = 'smart-todos-static-v4';
+const DYNAMIC_CACHE_NAME = 'smart-todos-dynamic-v4';
 
 const staticAssets = [
   '/',
@@ -15,8 +15,14 @@ const staticAssets = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE_NAME)
-      .then((cache) => {
-        return cache.addAll(staticAssets);
+      .then(async (cache) => {
+        await cache.addAll(staticAssets);
+        const shell = await fetch('/');
+        const html = await shell.clone().text();
+        const assetUrls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+          .map((match) => match[1])
+          .filter((value) => value.startsWith('/_next/') || /\.(?:js|css|woff2?)$/.test(value));
+        await Promise.allSettled([...new Set(assetUrls)].map((url) => cache.add(url)));
       })
       .then(() => {
         return self.skipWaiting();
@@ -171,7 +177,11 @@ self.addEventListener('fetch', (event) => {
 
 // Handle background sync (for when the app comes back online)
 self.addEventListener('sync', (event) => {
-  // Here you could implement offline data synchronization
+  if (event.tag === 'smart-todos-outbox') {
+    event.waitUntil(self.clients.matchAll({ type: 'window' }).then((clients) => {
+      for (const client of clients) client.postMessage({ type: 'sync-outbox' });
+    }));
+  }
 });
 
 // Handle push notifications (future enhancement)

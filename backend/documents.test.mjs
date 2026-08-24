@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import * as Automerge from "@automerge/automerge";
-import { DocumentStore, emptyListDocument, MAX_DOCUMENT_BYTES, validateListDocument } from "./documents.mjs";
+import { deleteClassifierHistoryThrough, DocumentStore, emptyListDocument, MAX_DOCUMENT_BYTES, validateListDocument } from "./documents.mjs";
 
 test("persists and merges concurrent offline list edits", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "smart-todos-documents-"));
@@ -121,4 +121,16 @@ test("serializes classifier resets with concurrent document merges", async () =>
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test("offline classifier reset preserves samples created after its reset epoch", () => {
+  const document = {
+    classifierHistory: {
+      old: { id: "old", createdAt: "2026-01-01T00:00:00.000Z" },
+      undated: { id: "undated" },
+      new: { id: "new", createdAt: "2026-01-03T00:00:00.000Z" },
+    },
+  };
+  deleteClassifierHistoryThrough(document, "2026-01-02T00:00:00.000Z");
+  assert.deepEqual(Object.keys(document.classifierHistory), ["new"]);
 });

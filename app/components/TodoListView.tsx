@@ -2163,7 +2163,9 @@ function ShareModal({
           })
       );
       
-      setShowSuccess(`Invitation sent to ${email}! They can now access the list using this URL or check their invitations page.`);
+      setShowSuccess(typeof navigator !== "undefined" && !navigator.onLine
+        ? `Invitation to ${email} saved locally and will be sent when you reconnect.`
+        : `Invitation sent to ${email}! They can now access the list using this URL or check their invitations page.`);
       setNewMemberEmail("");
       
       // Auto-hide success message
@@ -2181,8 +2183,10 @@ function ShareModal({
     setIsInviting(true);
     setShowError(null);
     try {
-      await db.sharing.addUser(todoList.id, target.id);
-      setShowSuccess(`${userDisplayName(target)} now has access to this list.`);
+      await db.sharing.addUser(todoList.id, target);
+      setShowSuccess(typeof navigator !== "undefined" && !navigator.onLine
+        ? `${userDisplayName(target)} will be added when you reconnect.`
+        : `${userDisplayName(target)} now has access to this list.`);
       setNewMemberEmail("");
       setDirectoryResults({ users: [], groups: [] });
     } catch (error) {
@@ -2197,8 +2201,10 @@ function ShareModal({
     setIsInviting(true);
     setShowError(null);
     try {
-      await db.sharing.addGroup(todoList.id, group.id);
-      setShowSuccess(`${group.name} now has access to this list.`);
+      await db.sharing.addGroup(todoList.id, group);
+      setShowSuccess(typeof navigator !== "undefined" && !navigator.onLine
+        ? `${group.name} will be added when you reconnect.`
+        : `${group.name} now has access to this list.`);
       setNewMemberEmail("");
       setDirectoryResults({ users: [], groups: [] });
     } catch (error) {

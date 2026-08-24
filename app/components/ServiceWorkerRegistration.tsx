@@ -24,6 +24,9 @@ export default function ServiceWorkerRegistration() {
     }
 
     // Register service worker for offline functionality
+    if ('storage' in navigator && 'persist' in navigator.storage) {
+      void navigator.storage.persist();
+    }
     navigator.serviceWorker.register('/sw.js')
         .then((registration) => {
           console.log('Service Worker registered successfully');
@@ -50,6 +53,9 @@ export default function ServiceWorkerRegistration() {
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         // Reload the page to get the latest version
         window.location.reload();
+      });
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'sync-outbox') void import('../../lib/db').then(({ db }) => db.syncNow());
       });
   }, []);
 

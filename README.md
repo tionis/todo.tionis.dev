@@ -14,6 +14,14 @@ A local-first collaborative grocery todo app built with Next.js, React, Automerg
 
 Read-only clients receive canonical documents but cannot upload changes. Write access is checked during the WebSocket upgrade and again before accepting document data. List permissions and membership are not stored in client-editable CRDT data.
 
+### Offline behavior
+
+After a successful online sign-in, the dashboard eagerly downloads every owned, shared, group-granted, or pinned list, including its complete Automerge document. The application shell, list metadata, pending invitations, sharing directory, and Automerge documents are cached locally and scoped to the signed-in account.
+
+Todo and category edits merge through Automerge. Server-authoritative changes—including creating/importing, renaming, configuring, archiving or deleting lists; pins; invitations; direct members; group grants; ownership transfers; and classifier resets—are applied optimistically and persisted in an IndexedDB outbox. They replay in order when connectivity returns. The status banner distinguishes locally saved work, active synchronization, and changes rejected by current server permissions. Classifier resets carry their original reset timestamp so samples created later are not removed by delayed delivery.
+
+Authentication and final authorization remain online operations. A first-time user cannot sign in offline, accepting an invitation cannot expose a previously inaccessible list until the server approves it, and revoked access cannot be learned while a device is disconnected. Cached data is cleared when the authenticated account changes or signs out.
+
 ## Development
 
 Install dependencies and create a backend environment file:

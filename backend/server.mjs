@@ -13,7 +13,7 @@ import {
 import { accessFor as calculateAccess } from "./access.mjs";
 import { loadConfig } from "./config.mjs";
 import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
-import { DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
+import { deleteClassifierHistoryThrough, DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
 import { rankDirectoryEntries } from "./directory-search.mjs";
 import { consumeInvitation } from "./invitations.mjs";
 import { transferListOwnership } from "./ownership.mjs";
@@ -286,6 +286,12 @@ async function handleApi(request, response, url) {
     if (!body.name?.trim() || !body.slug?.trim()) return fail(response, 400, "List name and slug are required");
     const permission = PERMISSIONS.has(body.permission) ? body.permission : "private-write";
     const id = body.id || crypto.randomUUID();
+    const existing = listRowById(id);
+    if (existing) {
+      if (existing.owner_id !== user.id) return fail(response, 409, "List id is already in use");
+      json(response, 200, { list: listShape(existing, user, true) });
+      return;
+    }
     const now = new Date().toISOString();
     database.prepare(`
       INSERT INTO lists (id, owner_id, name, slug, permission, tags, hide_completed,
@@ -316,7 +322,8 @@ async function handleApi(request, response, url) {
     const user = requestUser(request);
     const access = accessFor(row, user);
     if (!access.read) return fail(response, row ? 403 : 404, row ? "List access denied" : "List not found");
-    json(response, 200, { list: listShape(row, user, true) });
+    const document = Buffer.from(Automerge.save(await documents.load(row.id))).toString("base64");
+    json(response, 200, { list: listShape(row, user, true), document });
     return;
   }
   if (listMatch && request.method === "PATCH") {
@@ -353,6 +360,7 @@ async function handleApi(request, response, url) {
     if (!user) return;
     const id = decodeURIComponent(listMatch[1]);
     const row = listRowById(id);
+    if (!row) return json(response, 200, { ok: true });
     if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can delete this list");
     database.prepare("DELETE FROM lists WHERE id = ?").run(id);
     await documents.delete(id);
@@ -393,7 +401,8 @@ async function handleApi(request, response, url) {
     const list = listRowById(listId);
     if (!accessFor(list, user).owner) return fail(response, 403, "Only the owner can search directory identities");
     const query = (url.searchParams.get("q") || "").trim().slice(0, 128);
-    if (query.length < 2) return json(response, 200, { users: [], groups: [] });
+    const cacheWarmup = url.searchParams.get("cache") === "1";
+    if (query.length < 2 && !cacheWarmup) return json(response, 200, { users: [], groups: [] });
     const eligibleUsers = database.prepare(`
       SELECT id, email, name, username FROM users
       WHERE active = 1 AND id != ?
@@ -404,8 +413,8 @@ async function handleApi(request, response, url) {
       WHERE active = 1
         AND NOT EXISTS (SELECT 1 FROM list_group_grants WHERE list_id = ? AND group_id = directory_groups.id)
     `).all(listId).map((group) => ({ id: group.id, externalId: group.external_id, name: group.display_name }));
-    const users = rankDirectoryEntries(eligibleUsers, query);
-    const groups = rankDirectoryEntries(eligibleGroups, query);
+    const users = cacheWarmup ? eligibleUsers.slice(0, 5_000) : rankDirectoryEntries(eligibleUsers, query);
+    const groups = cacheWarmup ? eligibleGroups.slice(0, 5_000) : rankDirectoryEntries(eligibleGroups, query);
     json(response, 200, { users, groups });
     return;
   }
@@ -422,7 +431,7 @@ async function handleApi(request, response, url) {
     const target = database.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(body.userId);
     if (!target || target.id === list.owner_id) return fail(response, 400, "Invalid member");
     const existing = database.prepare("SELECT id FROM members WHERE list_id = ? AND user_id = ?").get(listId, target.id);
-    const id = existing?.id || crypto.randomUUID();
+    const id = existing?.id || body.id || crypto.randomUUID();
     database.prepare("INSERT OR IGNORE INTO members (id, list_id, user_id, role, added_at) VALUES (?, ?, ?, 'member', ?)")
       .run(id, listId, target.id, new Date().toISOString());
     refreshListConnections(listId);
@@ -441,7 +450,7 @@ async function handleApi(request, response, url) {
     const group = database.prepare("SELECT id FROM directory_groups WHERE id = ? AND active = 1").get(body.groupId);
     if (!group) return fail(response, 400, "Invalid group");
     const existing = database.prepare("SELECT id FROM list_group_grants WHERE list_id = ? AND group_id = ?").get(listId, group.id);
-    const id = existing?.id || crypto.randomUUID();
+    const id = existing?.id || body.id || crypto.randomUUID();
     database.prepare("INSERT OR IGNORE INTO list_group_grants (id, list_id, group_id, role, added_at) VALUES (?, ?, ?, 'member', ?)")
       .run(id, listId, group.id, new Date().toISOString());
     refreshListConnections(listId);
@@ -455,7 +464,7 @@ async function handleApi(request, response, url) {
     const user = requireUser(request, response);
     if (!user) return;
     const grant = database.prepare("SELECT * FROM list_group_grants WHERE id = ?").get(decodeURIComponent(groupGrantMatch[1]));
-    if (!grant) return fail(response, 404, "Group grant not found");
+    if (!grant) return json(response, 200, { ok: true });
     if (!accessFor(listRowById(grant.list_id), user).owner) return fail(response, 403, "Only the owner can remove group access");
     database.prepare("DELETE FROM list_group_grants WHERE id = ?").run(grant.id);
     refreshListConnections(grant.list_id);
@@ -472,7 +481,12 @@ async function handleApi(request, response, url) {
     if (!accessFor(listRowById(listId), user).owner) return fail(response, 403, "Only the owner can invite members");
     const body = await readJson(request);
     if (!body.email?.trim()) return fail(response, 400, "Email is required");
-    const id = crypto.randomUUID();
+    const id = body.id || crypto.randomUUID();
+    const existing = database.prepare("SELECT * FROM invitations WHERE id = ?").get(id);
+    if (existing) {
+      if (existing.list_id !== listId || existing.inviter_id !== user.id) return fail(response, 409, "Invitation id is already in use");
+      return json(response, 200, { id });
+    }
     database.prepare(`
       INSERT INTO invitations (id, list_id, inviter_id, email, role, status, invited_at)
       VALUES (?, ?, ?, ?, 'member', 'pending', ?)
@@ -488,8 +502,9 @@ async function handleApi(request, response, url) {
     if (!user) return;
     const listId = decodeURIComponent(transferMatch[1]);
     const row = listRowById(listId);
-    if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can transfer this list");
     const body = await readJson(request);
+    if (row?.owner_id === body.userId) return json(response, 200, { ok: true });
+    if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can transfer this list");
     transferListOwnership(database, { listId, currentOwnerId: user.id, newOwnerId: body.userId });
     refreshListConnections(listId);
     json(response, 200, { ok: true });
@@ -503,9 +518,10 @@ async function handleApi(request, response, url) {
     if (!user) return;
     const listId = decodeURIComponent(classifierResetMatch[1]);
     if (!accessFor(listRowById(listId), user).owner) return fail(response, 403, "Only the owner can reset classifier history");
-    const resetAt = new Date().toISOString();
+    const body = await readJson(request);
+    const resetAt = typeof body.resetAt === "string" ? body.resetAt : new Date().toISOString();
     const document = await documents.change(listId, (draft) => {
-      for (const id of Object.keys(draft.classifierHistory)) delete draft.classifierHistory[id];
+      deleteClassifierHistoryThrough(draft, resetAt);
     });
     database.prepare("UPDATE lists SET classifier_reset_at = ?, updated_at = ? WHERE id = ?")
       .run(resetAt, resetAt, listId);
@@ -544,6 +560,7 @@ async function handleApi(request, response, url) {
     if (!invitation || !user.emailVerified || !user.email || invitation.email.toLowerCase() !== user.email.toLowerCase()) return fail(response, 403, "Invitation access denied");
     const body = await readJson(request);
     if (!new Set(["accepted", "declined"]).has(body.status)) return fail(response, 400, "Invalid invitation status");
+    if (invitation.status === body.status) return json(response, 200, { ok: true });
     consumeInvitation(database, invitation, user.id, body.status);
     json(response, 200, { ok: true });
     return;
@@ -553,7 +570,8 @@ async function handleApi(request, response, url) {
     const user = requireUser(request, response);
     if (!user) return;
     const invitation = database.prepare("SELECT * FROM invitations WHERE id = ?").get(decodeURIComponent(invitationMatch[1]));
-    if (!invitation || !accessFor(listRowById(invitation.list_id), user).owner) return fail(response, 403, "Only the owner can remove invitations");
+    if (!invitation) return json(response, 200, { ok: true });
+    if (!accessFor(listRowById(invitation.list_id), user).owner) return fail(response, 403, "Only the owner can remove invitations");
     database.prepare("DELETE FROM invitations WHERE id = ?").run(invitation.id);
     json(response, 200, { ok: true });
     return;
@@ -565,7 +583,7 @@ async function handleApi(request, response, url) {
     const user = requireUser(request, response);
     if (!user) return;
     const member = database.prepare("SELECT * FROM members WHERE id = ?").get(decodeURIComponent(memberMatch[1]));
-    if (!member) return fail(response, 404, "Member not found");
+    if (!member) return json(response, 200, { ok: true });
     const access = accessFor(listRowById(member.list_id), user);
     if (!access.owner && member.user_id !== user.id) return fail(response, 403, "Member access denied");
     database.prepare("DELETE FROM members WHERE id = ?").run(member.id);
