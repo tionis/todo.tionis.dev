@@ -655,6 +655,13 @@ export const db = {
     return { ...summarizeOutbox(outbox, outboxSyncing), errors: outbox.filter((command) => command.status === "rejected").map((command) => command.error || "Server rejected a queued change") };
   },
   async syncNow() { await flushOutbox(); },
+  async refreshAfterBackgroundSync() {
+    if (!user) return;
+    outbox = await readOutbox();
+    outboxLoaded = true;
+    emit();
+    await Promise.allSettled([loadDashboard(true), loadInvitations(true)]);
+  },
   async retryRejected() {
     for (const command of outbox.filter((candidate) => candidate.status === "rejected")) {
       command.status = "pending"; delete command.error; await putOutboxCommand(command);

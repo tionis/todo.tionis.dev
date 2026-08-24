@@ -1,26 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from '../../lib/db';
 
 export function useOnlineStatus() {
   const [isOnline, setIsOnline] = useState(true);
   const [wasOffline, setWasOffline] = useState(false);
+  const offlineRef = useRef(false);
 
   useEffect(() => {
     // Check if we're in a browser environment
     if (typeof window === 'undefined') return;
 
+    let reconnectedTimer: ReturnType<typeof setTimeout> | undefined;
     const updateOnlineStatus = () => {
-      const online = navigator.onLine;
-      setIsOnline(online);
-      
-      // Track if we were offline and came back online
-      if (!online) {
-        setWasOffline(true);
-      } else if (wasOffline) {
-        // We're back online after being offline
+      if (!navigator.onLine) {
+        offlineRef.current = true;
+        setIsOnline(false);
         setWasOffline(false);
+        return;
+      }
+
+      setIsOnline(true);
+      if (offlineRef.current) {
+        offlineRef.current = false;
+        setWasOffline(true);
+        clearTimeout(reconnectedTimer);
+        reconnectedTimer = setTimeout(() => setWasOffline(false), 3000);
       }
     };
 
@@ -34,8 +40,9 @@ export function useOnlineStatus() {
     return () => {
       window.removeEventListener('online', updateOnlineStatus);
       window.removeEventListener('offline', updateOnlineStatus);
+      clearTimeout(reconnectedTimer);
     };
-  }, [wasOffline]);
+  }, []);
 
   return { isOnline, wasOffline };
 }
@@ -43,16 +50,6 @@ export function useOnlineStatus() {
 export default function OfflineIndicator() {
   const { isOnline, wasOffline } = useOnlineStatus();
   const { pending, rejected, syncing, errors } = db.useSyncStatus();
-  const [showReconnected, setShowReconnected] = useState(false);
-
-  useEffect(() => {
-    if (isOnline && wasOffline) {
-      setShowReconnected(true);
-      // Hide the "reconnected" message after 3 seconds
-      const timer = setTimeout(() => setShowReconnected(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [isOnline, wasOffline]);
 
   if (rejected > 0) {
     return (
@@ -64,7 +61,7 @@ export default function OfflineIndicator() {
     );
   }
 
-  if (syncing || showReconnected) {
+  if (syncing || wasOffline) {
     return (
       <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2">
         <span className="w-2 h-2 bg-green-300 rounded-full animate-pulse"></span>

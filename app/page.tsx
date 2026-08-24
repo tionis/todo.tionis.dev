@@ -8,6 +8,7 @@ import { buildCreateListFromTemplateTransactions, type TemplateCopyOptions } fro
 import { parseListTags, tagInputToList } from "../lib/tags";
 import { buildListImportTransactions, MAX_IMPORT_FILE_BYTES } from "../lib/listImport";
 import { userDisplayName } from "../shared/identity.mjs";
+import { consumeLaunchAction } from "../lib/pwa";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
@@ -109,6 +110,14 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const importInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const launch = consumeLaunchAction(window.location.href);
+    if (launch.action === "new") {
+      setShowCreateModal(true);
+      window.history.replaceState(window.history.state, "", launch.nextUrl);
+    }
+  }, []);
 
   const { isLoading: listsLoading, error: listsError, data: listsData } = db.useQuery({
     todoLists: {

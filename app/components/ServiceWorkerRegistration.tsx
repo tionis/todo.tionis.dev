@@ -27,36 +27,56 @@ export default function ServiceWorkerRegistration() {
     if ('storage' in navigator && 'persist' in navigator.storage) {
       void navigator.storage.persist();
     }
-    navigator.serviceWorker.register('/sw.js')
+    let reloading = false;
+    let hadController = Boolean(navigator.serviceWorker.controller);
+    const watchWorker = (worker: ServiceWorker | null) => {
+      if (!worker) return;
+      setNewWorker(worker);
+      const handleStateChange = () => {
+        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+          setUpdateAvailable(true);
+        }
+      };
+      worker.addEventListener('statechange', handleStateChange);
+      handleStateChange();
+    };
+    const handleControllerChange = () => {
+      if (!hadController) {
+        hadController = true;
+        return;
+      }
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'outbox-updated') {
+        void import('../../lib/db').then(({ db }) => db.refreshAfterBackgroundSync());
+      }
+    };
+
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
         .then((registration) => {
           console.log('Service Worker registered successfully');
-          
-          // Check for updates
+          watchWorker(registration.waiting);
           registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing;
-            if (newWorker) {
-              setNewWorker(newWorker);
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  // New version available
-                  setUpdateAvailable(true);
-                }
-              });
-            }
+            watchWorker(registration.installing);
+          });
+          void registration.update().catch((error) => {
+            console.warn('Could not check for a service worker update:', error);
           });
         })
         .catch((error) => {
           console.error('Service Worker registration failed:', error);
         });
       
-      // Listen for controller changes (new SW activated)
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        // Reload the page to get the latest version
-        window.location.reload();
-      });
-      navigator.serviceWorker.addEventListener('message', (event) => {
-        if (event.data?.type === 'sync-outbox') void import('../../lib/db').then(({ db }) => db.syncNow());
-      });
+      navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+
+      return () => {
+        navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      };
   }, []);
 
   const handleUpdate = () => {

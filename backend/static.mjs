@@ -46,7 +46,7 @@ async function regularFile(filename) {
 
 function cacheControl(filename) {
   const normalized = filename.split(path.sep).join("/");
-  if (filename.endsWith(".html") || filename.endsWith("/sw.js")) return "no-cache";
+  if (filename.endsWith(".html") || filename.endsWith("/sw.js") || filename.endsWith("/manifest.json")) return "no-cache";
   if (normalized.includes("/_next/static/")) return "public, max-age=31536000, immutable";
   return "public, max-age=3600";
 }

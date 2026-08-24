@@ -10,6 +10,7 @@ async function fixture() {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "smart-todos-static-"));
   await fs.mkdir(path.join(directory, "_next", "static"), { recursive: true });
   await fs.writeFile(path.join(directory, "index.html"), "<h1>Smart Todos</h1>");
+  await fs.writeFile(path.join(directory, "manifest.json"), '{"name":"Smart Todos"}');
   await fs.writeFile(path.join(directory, "_next", "static", "app.js"), "console.log('app')");
   return directory;
 }
@@ -38,6 +39,10 @@ test("serves frontend files with appropriate cache policy", async () => {
     const asset = await fetch(`${origin}/_next/static/app.js`);
     assert.equal(asset.status, 200);
     assert.equal(asset.headers.get("cache-control"), "public, max-age=31536000, immutable");
+
+    const manifest = await fetch(`${origin}/manifest.json`);
+    assert.equal(manifest.status, 200);
+    assert.equal(manifest.headers.get("cache-control"), "no-cache");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fs.rm(directory, { recursive: true, force: true });

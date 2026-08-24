@@ -1,5 +1,10 @@
-const STATIC_CACHE_NAME = 'smart-todos-static-v4';
-const DYNAMIC_CACHE_NAME = 'smart-todos-dynamic-v4';
+// The production build replaces these placeholders. Keeping the revision in
+// the worker itself ensures browsers discover every exported application
+// release, even when this source file did not otherwise change.
+const CACHE_VERSION = '__BUILD_REVISION__';
+const API_BASE = __API_BASE__;
+const STATIC_CACHE_NAME = `smart-todos-static-${CACHE_VERSION}`;
+const DYNAMIC_CACHE_NAME = `smart-todos-dynamic-${CACHE_VERSION}`;
 
 const staticAssets = [
   '/',
@@ -23,9 +28,6 @@ self.addEventListener('install', (event) => {
           .map((match) => match[1])
           .filter((value) => value.startsWith('/_next/') || /\.(?:js|css|woff2?)$/.test(value));
         await Promise.allSettled([...new Set(assetUrls)].map((url) => cache.add(url)));
-      })
-      .then(() => {
-        return self.skipWaiting();
       })
   );
 });
@@ -66,7 +68,10 @@ self.addEventListener('fetch', (event) => {
   // Authentication and list metadata are server-authoritative and must never
   // be served from a cache. Keep this before the navigation/static branches so
   // it also covers same-origin production deployments and auth callbacks.
-  if (url.pathname.startsWith('/api/')) {
+  const isSameOrigin = url.origin === self.location.origin;
+  const apiUrl = new URL(`${API_BASE || self.location.origin}/api/`);
+  const isApiRequest = url.origin === apiUrl.origin && url.pathname.startsWith(apiUrl.pathname);
+  if (isApiRequest) {
     event.respondWith(
       fetch(request)
         .catch(() => {
@@ -119,9 +124,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Handle static assets (cache-first strategy)
-  if ((url.origin === self.location.origin && staticAssets.includes(url.pathname)) ||
-      url.pathname.startsWith('/_next/') || 
-      url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json)$/)) {
+  if (isSameOrigin && (staticAssets.includes(url.pathname) ||
+      url.pathname.startsWith('/_next/') ||
+      url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json)$/))) {
     event.respondWith(
       caches.match(request).then((cachedResponse) => {
         if (cachedResponse) {
@@ -154,6 +159,8 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Default: network-first for everything else
+  if (!isSameOrigin) return;
+
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -175,16 +182,95 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Handle background sync (for when the app comes back online)
+function openOutboxDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('smart-todos-automerge', 2);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('documents')) {
+        request.result.createObjectStore('documents');
+      }
+      if (!request.result.objectStoreNames.contains('outbox')) {
+        request.result.createObjectStore('outbox', { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function outboxRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readOutbox(database) {
+  return outboxRequest(database.transaction('outbox', 'readonly').objectStore('outbox').getAll());
+}
+
+async function deleteOutboxCommand(database, id) {
+  await outboxRequest(database.transaction('outbox', 'readwrite').objectStore('outbox').delete(id));
+}
+
+async function updateOutboxCommand(database, command) {
+  await outboxRequest(database.transaction('outbox', 'readwrite').objectStore('outbox').put(command));
+}
+
+async function notifyOutboxUpdated() {
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const client of clients) client.postMessage({ type: 'outbox-updated' });
+}
+
+async function flushOutboxInBackground() {
+  const base = API_BASE || self.location.origin;
+  const sessionResponse = await fetch(`${base}/api/auth/session`, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  if (!sessionResponse.ok) throw new Error(`Session unavailable (${sessionResponse.status})`);
+  const session = await sessionResponse.json();
+  if (!session.user?.id) return;
+
+  const database = await openOutboxDatabase();
+  try {
+    const commands = (await readOutbox(database))
+      .filter((command) => command.userId === session.user.id && command.status === 'pending')
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+
+    for (const command of commands) {
+      const response = await fetch(`${base}${command.path}`, {
+        method: command.method,
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': command.id,
+        },
+        body: command.body === undefined ? undefined : JSON.stringify(command.body),
+      });
+
+      if (response.ok) {
+        await deleteOutboxCommand(database, command.id);
+        continue;
+      }
+      if (response.status === 401 || response.status === 429 || response.status >= 500) {
+        throw new Error(`Synchronization deferred (${response.status})`);
+      }
+
+      const value = await response.json().catch(() => ({}));
+      command.status = 'rejected';
+      command.error = value.message || value.error || `Server rejected this change (${response.status})`;
+      await updateOutboxCommand(database, command);
+    }
+  } finally {
+    database.close();
+    await notifyOutboxUpdated();
+  }
+}
+
+// Deliver queued authoritative changes even when no application window is open.
 self.addEventListener('sync', (event) => {
   if (event.tag === 'smart-todos-outbox') {
-    event.waitUntil(self.clients.matchAll({ type: 'window' }).then((clients) => {
-      for (const client of clients) client.postMessage({ type: 'sync-outbox' });
-    }));
+    event.waitUntil(flushOutboxInBackground());
   }
-});
-
-// Handle push notifications (future enhancement)
-self.addEventListener('push', (event) => {
-  // Here you could implement push notifications
 });
