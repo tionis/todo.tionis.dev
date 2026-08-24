@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { applySecurityHeaders } from '../backend/security-headers.mjs';
 import { serveStatic } from '../backend/static.mjs';
 
 const staticDir = path.resolve('out');
@@ -17,6 +18,7 @@ function json(response, value) {
 }
 
 const server = http.createServer(async (request, response) => {
+  applySecurityHeaders(response, 'http://127.0.0.1:4173');
   const url = new URL(request.url, 'http://127.0.0.1:4173');
   const cookies = new Set((request.headers.cookie || '').split(';').map((cookie) => cookie.trim()));
   if (request.method === 'POST' && url.pathname === '/__test/sw-revision') {

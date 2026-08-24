@@ -20,6 +20,7 @@ import { transferListOwnership } from "./ownership.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 import { createFixedWindowRateLimiter } from "./rate-limit.mjs";
 import { handleScimRequest } from "./scim.mjs";
+import { applySecurityHeaders } from "./security-headers.mjs";
 import { serveStatic } from "./static.mjs";
 
 const PERMISSIONS = new Set(["public-write", "public-read", "private-write", "private-read", "owner"]);
@@ -596,6 +597,7 @@ async function handleApi(request, response, url) {
 }
 
 const server = http.createServer(async (request, response) => {
+  applySecurityHeaders(response, config.publicUrl);
   setCors(request, response);
   try {
     const url = new URL(request.url || "/", config.publicUrl);
