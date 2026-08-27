@@ -384,7 +384,7 @@ async function loadUserOutbox() {
     dashboardIds = cached.lists.map((list: any) => list.id);
     await Promise.all(cached.lists.map((metadata: any) => registerList(metadata)));
   }
-  await flushOutbox();
+  void flushOutbox();
 }
 
 async function resumeOutboxSync() {
