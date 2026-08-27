@@ -23,7 +23,6 @@ const list = {
   owner: user,
   members: [],
   groupGrants: [],
-  invitations: [],
   pins: [],
   access: { read: true, write: true, owner: true, member: false },
 };
@@ -70,7 +69,6 @@ try {
       if (pathname === "/api/lists") return route.fulfill({ json: { lists: [list] } });
       if (pathname === "/api/lists/demo-list") return route.fulfill({ json: { list, document: serializedDocument } });
       if (pathname === "/api/lists/demo-list/share-targets") return route.fulfill({ json: { users: [], groups: [] } });
-      if (pathname === "/api/invitations") return route.fulfill({ json: { invitations: [] } });
       return route.fulfill({ status: 404, json: { error: "not_found" } });
     });
     await page.goto(origin);

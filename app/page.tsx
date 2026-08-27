@@ -15,7 +15,6 @@ import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
 import { useHashRouter } from "./components/HashRouter";
 import TodoListView from "./components/TodoListView";
-import InvitationsView from "./components/InvitationsView";
 
 type CreateListPayload = {
   name: string;
@@ -34,10 +33,6 @@ function App() {
       path: '/list/:slug',
       component: TodoListView,
     },
-    {
-      path: '/invitations',
-      component: InvitationsView,
-    }
   ], []);
 
   const { currentRoute, routeParams } = useHashRouter(routes);
@@ -96,8 +91,7 @@ function LandingPage() {
           <li>• Share with simple URLs</li>
         </ul>
         <p className="mt-4 text-xs">
-          Already have a list URL? Use the new format: yoursite.com/#/list/your-slug<br/>
-          Check your invitations at: yoursite.com/#/invitations
+          Already have a list URL? Use the new format: yoursite.com/#/list/your-slug
         </p>
       </div>
     </div>
@@ -165,22 +159,12 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
   }) as unknown as { isLoading: boolean; error: Error | null; data: { pinnedLists: any[] } | null };
 
-  const userEmail = user.email?.toLowerCase();
-  const { isLoading: invitationsLoading, error: invitationsError, data: invitationsData } = db.useQuery(
-    userEmail ? {
-      invitations: {
-        $: { where: { email: userEmail, status: 'pending' } }
-      }
-    } : null
-  ) as unknown as { isLoading: boolean; error: Error | null; data: { invitations: any[] } | null };
-
-  const isLoading = listsLoading || pinsLoading || invitationsLoading;
-  const error = listsError || pinsError || invitationsError;
+  const isLoading = listsLoading || pinsLoading;
+  const error = listsError || pinsError;
 
   if (isLoading) return <LoadingSpinner message="Loading your lists..." />;
   if (error) return <ErrorDisplay message={error.message} />;
 
-  const pendingInvitationsCount = invitationsData?.invitations?.length || 0;
   const ownAndMemberLists = listsData?.todoLists || [];
   const ownAndMemberListIds = new Set(ownAndMemberLists.map((list) => list.id));
   const pinnedLists = (pinsData?.pinnedLists || []).flatMap((pin) => {
@@ -315,17 +299,6 @@ function AuthenticatedApp({ user }: { user: User }) {
               className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
             >
               Import Export
-            </button>
-            <button
-              onClick={() => window.location.hash = '/invitations'}
-              className="relative px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
-            >
-              Invitations
-              {pendingInvitationsCount > 0 && (
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                  {pendingInvitationsCount}
-                </span>
-              )}
             </button>
             <button
               onClick={() => setShowCreateModal(true)}

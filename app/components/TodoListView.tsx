@@ -76,7 +76,6 @@ interface TodoList {
   sublists: Sublist[];
   members: any[];
   groupGrants: any[];
-  invitations: any[];
   pins: any[];
   todoClassifications: any[];
   [key: string]: any;
@@ -139,7 +138,6 @@ export default function TodoListView({ slug }: TodoListViewProps) {
       },
       sublists: { todos: {} },
       members: { user: {} },
-      invitations: { inviter: {} },
       pins: { user: {} },
       todoClassifications: { sublist: {} }
     } 
@@ -190,58 +188,6 @@ export default function TodoListView({ slug }: TodoListViewProps) {
     setMounted(true);
   }, []);
 
-  // Auto-accept invitations when user signs in
-  const [autoAcceptStatus, setAutoAcceptStatus] = useState<{
-    accepting: boolean;
-    accepted: boolean;
-    error: string | null;
-  }>({ accepting: false, accepted: false, error: null });
-
-  useEffect(() => {
-    if (user?.email && data?.todoLists?.[0]) {
-      const todoList = data.todoLists[0];
-      const userEmail = user.email.toLowerCase();
-      
-      // Find pending invitation for this user
-      const pendingInvitation = todoList.invitations.find((inv: any) =>
-        inv.email.toLowerCase() === userEmail && inv.status === 'pending'
-      );
-      
-      if (pendingInvitation && !autoAcceptStatus.accepting && !autoAcceptStatus.accepted) {
-        setAutoAcceptStatus({ accepting: true, accepted: false, error: null });
-        
-        // Accept the invitation by creating a member record and updating invitation status
-        db.transact([
-          db.tx.listMembers[id()]
-            .update({
-              role: pendingInvitation.role,
-              addedAt: new Date().toISOString()
-            })
-            .link({ 
-              user: user.id,
-              list: todoList.id 
-            }),
-          db.tx.invitations[pendingInvitation.id].update({
-            status: 'accepted'
-          })
-        ]).then(() => {
-          setAutoAcceptStatus({ accepting: false, accepted: true, error: null });
-          // Auto-hide the success message after 5 seconds
-          setTimeout(() => {
-            setAutoAcceptStatus(prev => ({ ...prev, accepted: false }));
-          }, 5000);
-        }).catch(err => {
-          console.error("Failed to accept invitation:", err);
-          setAutoAcceptStatus({ 
-            accepting: false, 
-            accepted: false, 
-            error: "Failed to automatically accept invitation. Please try refreshing the page." 
-          });
-        });
-      }
-    }
-  }, [user, data?.todoLists]);
-
   // Prevent hydration mismatch
   if (!mounted || authLoading || isLoading) {
     return <LoadingSpinner />;
@@ -283,7 +229,6 @@ export default function TodoListView({ slug }: TodoListViewProps) {
       isMember={isMember}
       currentUserPinId={currentUserPin?.id}
       canWrite={!!canWrite}
-      autoAcceptStatus={autoAcceptStatus}
       toggleTodo={toggleTodo}
       deleteTodo={deleteTodo}
       addToast={addToast}
@@ -316,7 +261,6 @@ function TodoListApp({
   isMember,
   currentUserPinId,
   canWrite,
-  autoAcceptStatus,
   toggleTodo,
   deleteTodo,
   addToast
@@ -327,11 +271,6 @@ function TodoListApp({
   isMember: boolean;
   currentUserPinId?: string;
   canWrite: boolean;
-  autoAcceptStatus: {
-    accepting: boolean;
-    accepted: boolean;
-    error: string | null;
-  };
   toggleTodo: (todo: Todo) => void;
   deleteTodo: (todo: Todo) => void;
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -626,34 +565,6 @@ function TodoListApp({
         </div>
 
         <div className="flex flex-col items-center space-y-6">
-          {/* Auto-accept Status */}
-          {autoAcceptStatus.accepting && (
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-4 py-3 rounded-lg w-full max-w-2xl">
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                <span>Accepting invitation...</span>
-              </div>
-            </div>
-          )}
-          
-          {autoAcceptStatus.accepted && (
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 px-4 py-3 rounded-lg w-full max-w-2xl">
-              <div className="flex items-center space-x-2">
-                <span>✓</span>
-                <span>Welcome! You've been added to this list.</span>
-              </div>
-            </div>
-          )}
-          
-          {autoAcceptStatus.error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg w-full max-w-2xl">
-              <div className="flex items-center space-x-2">
-                <span>⚠️</span>
-                <span>{autoAcceptStatus.error}</span>
-              </div>
-            </div>
-          )}
-
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-w-2xl">
             <div className="flex items-center space-x-4">
               <OnlineUsersTooltip currentUser={user} peers={peers} numUsers={numUsers} myPresence={myPresence}/>
@@ -1077,8 +988,6 @@ function SettingsPanel({
       ...todoList.sublists.map(sublist => db.tx.sublists[sublist.id].delete()),
       // Delete all members
       ...todoList.members.map(member => db.tx.listMembers[member.id].delete()),
-      // Delete all invitations
-      ...todoList.invitations.map(invitation => db.tx.invitations[invitation.id].delete()),
       // Finally delete the list itself
       db.tx.todoLists[todoList.id].delete()
     ];
@@ -2114,71 +2023,6 @@ function ShareModal({
     }
   };
 
-  const sendInvitation = async () => {
-    if (!newMemberEmail.trim()) return;
-    
-    setIsInviting(true);
-    setShowError(null);
-    try {
-      const email = newMemberEmail.trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        setShowError("Select a directory user or group, or enter a valid email address.");
-        return;
-      }
-      
-      // Check if user is already a member
-      const existingMember = todoList.members.find(member => 
-        member.user?.email?.toLowerCase() === email
-      );
-      
-      if (existingMember) {
-        setShowError("This user is already a member of this list.");
-        setIsInviting(false);
-        return;
-      }
-      
-      // Check if invitation already exists
-      const existingInvitation = todoList.invitations.find(inv => 
-        inv.email.toLowerCase() === email && inv.status === 'pending'
-      );
-      
-      if (existingInvitation) {
-        setShowError("An invitation has already been sent to this email.");
-        setIsInviting(false);
-        return;
-      }
-      
-      // Create invitation
-      await db.transact(
-        db.tx.invitations[id()]
-          .update({
-            email,
-            role: 'member',
-            invitedAt: new Date().toISOString(),
-            status: 'pending'
-          })
-          .link({ 
-            list: todoList.id,
-            inviter: todoList.owner?.id 
-          })
-      );
-      
-      setShowSuccess(typeof navigator !== "undefined" && !navigator.onLine
-        ? `Invitation to ${email} saved locally and will be sent when you reconnect.`
-        : `Invitation sent to ${email}! They can now access the list using this URL or check their invitations page.`);
-      setNewMemberEmail("");
-      
-      // Auto-hide success message
-      setTimeout(() => setShowSuccess(""), 5000);
-      
-    } catch (err) {
-      console.error("Failed to send invitation:", err);
-      setShowError("Failed to send invitation. Please try again.");
-    } finally {
-      setIsInviting(false);
-    }
-  };
-
   const addDirectoryUser = async (target: any) => {
     setIsInviting(true);
     setShowError(null);
@@ -2224,15 +2068,6 @@ function ShareModal({
     }
   };
 
-  const revokeInvitation = async (invitationId: string) => {
-    try {
-      await db.transact(db.tx.invitations[invitationId].delete());
-    } catch (err) {
-      console.error("Failed to revoke invitation:", err);
-      setShowError("Failed to revoke invitation. Please try again.");
-    }
-  };
-
   const removeMember = async (memberId: string) => {
     try {
       await db.transact(db.tx.listMembers[memberId].delete());
@@ -2268,8 +2103,6 @@ function ShareModal({
     }
   };
 
-  const pendingInvitations = todoList.invitations.filter(inv => inv.status === 'pending');
-  
   // Check if current user is a member (not owner) of this list
   const currentUserMembership = user ? todoList.members.find(member => 
     member.user?.id === user.id
@@ -2317,11 +2150,11 @@ function ShareModal({
 
         {isOwner && (
           <>
-            {/* Directory sharing and email invitations */}
+            {/* Directory sharing */}
             <div>
               <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Add a User or Group</label>
               <div className="space-y-2">
-                <div className="flex space-x-2">
+                <div>
                   <input
                     type="text"
                     value={newMemberEmail}
@@ -2330,13 +2163,6 @@ function ShareModal({
                     className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                     disabled={isInviting}
                   />
-                  <button
-                    onClick={sendInvitation}
-                    disabled={isInviting || !newMemberEmail.includes('@')}
-                    className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isInviting ? "Working..." : "Invite Email"}
-                  </button>
                 </div>
                 {(isSearching || directoryResults.users.length > 0 || directoryResults.groups.length > 0) && (
                   <div className="border border-gray-200 dark:border-gray-600 rounded divide-y divide-gray-200 dark:divide-gray-600 max-h-48 overflow-y-auto">
@@ -2369,30 +2195,10 @@ function ShareModal({
                   </div>
                 )}
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Directory users and groups get access immediately. Unknown users can still be invited by email.
+                  Select a provisioned directory user or group to grant access immediately.
                 </p>
               </div>
             </div>
-
-            {/* Pending Invitations */}
-            {pendingInvitations.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Pending Invitations</label>
-                <div className="space-y-2 max-h-24 overflow-y-auto">
-                  {pendingInvitations.map(invitation => (
-                    <div key={invitation.id} className="flex items-center justify-between py-1">
-                      <span className="text-sm text-gray-900 dark:text-white">{invitation.email}</span>
-                      <button
-                        onClick={() => revokeInvitation(invitation.id)}
-                        className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs"
-                      >
-                        Revoke
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Current Members */}
             <div>
@@ -2450,8 +2256,8 @@ function ShareModal({
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {todoList.permission === 'public-write' && "Anyone with the URL can view and edit"}
             {todoList.permission === 'public-read' && "Anyone with the URL can view, but only members can edit"}
-            {todoList.permission === 'private-write' && "Only invited members can view and edit"}
-            {todoList.permission === 'private-read' && "Only invited members can view and edit"}
+            {todoList.permission === 'private-write' && "Only members can view and edit"}
+            {todoList.permission === 'private-read' && "Only members can view and edit"}
             {todoList.permission === 'owner' && "Only you can access this list"}
           </p>
         </div>
@@ -2468,7 +2274,7 @@ function ShareModal({
               <div className="flex-1">
                 <h4 className="text-sm font-medium text-orange-800 dark:text-orange-200 mb-2">Leave List</h4>
                 <p className="text-sm text-orange-700 dark:text-orange-300 mb-3">
-                  You can leave this list at any time. You'll lose access unless the owner invites you back.
+                  You can leave this list at any time. You'll lose access unless the owner adds you again.
                 </p>
                 <button
                   onClick={() => setShowLeaveConfirm(true)}
@@ -2503,10 +2309,10 @@ function ShareModal({
               <ul className="text-sm text-orange-600 dark:text-orange-400 space-y-1">
                 <li>• You will lose access to this list</li>
                 <li>• You won't be able to view or edit todos</li>
-                <li>• The owner will need to invite you again to regain access</li>
+                <li>• The owner will need to add you again to restore access</li>
               </ul>
               <p className="text-sm text-orange-700 dark:text-orange-300 mt-2 font-medium">
-                You can always be re-invited later.
+                The owner can add you again later.
               </p>
             </div>
           </div>
@@ -2660,7 +2466,7 @@ function TransferOwnershipModal({
 
             {todoList.members.filter(member => member.user?.id && member.user?.active !== false).length === 0 && (
               <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-                No valid members available. You need to invite members with confirmed accounts before you can transfer ownership.
+                No valid members available. Add a provisioned user before transferring ownership.
               </p>
             )}
           </div>

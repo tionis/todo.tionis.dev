@@ -8,21 +8,21 @@ A local-first collaborative grocery todo app built with Next.js, React, Automerg
 - Each list is an Automerge document containing categories, todos, and classifier history.
 - Browser documents are stored in IndexedDB and changes remain available offline.
 - The backend persists canonical Automerge files and broadcasts merged documents over WebSockets.
-- SQLite stores server-authoritative users, directory groups, sessions, list metadata, permissions, members, invitations, and pins.
-- OIDC Authorization Code Flow with PKCE is handled by the backend. Login transactions are bound to the initiating browser, and browser sessions use opaque, hashed, HttpOnly cookies. Invitation matching only uses email claims for which the provider returns `email_verified: true`.
+- SQLite stores server-authoritative users, directory groups, sessions, list metadata, permissions, members, and pins.
+- OIDC Authorization Code Flow with PKCE is handled by the backend. Login transactions are bound to the initiating browser, and browser sessions use opaque, hashed, HttpOnly cookies.
 - An optional SCIM 2.0 service lets an identity provider provision users, friendly names, usernames, groups, activation state, and group membership before users log in.
 
 Read-only clients receive canonical documents but cannot upload changes. Write access is checked during the WebSocket upgrade and again before accepting document data. List permissions and membership are not stored in client-editable CRDT data.
 
 ### Offline behavior
 
-After a successful online sign-in, the dashboard eagerly downloads every owned, shared, group-granted, or pinned list, including its complete Automerge document. The application shell, list metadata, pending invitations, sharing directory, and Automerge documents are cached locally and scoped to the signed-in account.
+After a successful online sign-in, the dashboard eagerly downloads every owned, shared, group-granted, or pinned list, including its complete Automerge document. The application shell, list metadata, sharing directory, and Automerge documents are cached locally and scoped to the signed-in account.
 
-Todo and category edits merge through Automerge. Server-authoritative changes—including creating/importing, renaming, configuring, archiving or deleting lists; pins; invitations; direct members; group grants; ownership transfers; and classifier resets—are applied optimistically and persisted in an IndexedDB outbox. They replay in order when connectivity returns. The status banner distinguishes locally saved work, active synchronization, and changes rejected by current server permissions. Classifier resets carry their original reset timestamp so samples created later are not removed by delayed delivery.
+Todo and category edits merge through Automerge. Server-authoritative changes—including creating/importing, renaming, configuring, archiving or deleting lists; pins; direct members; group grants; ownership transfers; and classifier resets—are applied optimistically and persisted in an IndexedDB outbox. They replay in order when connectivity returns. The status banner distinguishes locally saved work, active synchronization, and changes rejected by current server permissions. Classifier resets carry their original reset timestamp so samples created later are not removed by delayed delivery.
 
 Production builds generate a release-specific service worker that atomically precaches the complete exported application shell, including the Automerge WebAssembly runtime. The immutable precache is isolated from bounded runtime caches, and activation only removes obsolete Smart Todos caches. The installed app can privately receive shared text and links through a short-lived IndexedDB handoff, retries queued work through Background Sync where supported, and also retries on reconnect, focus, and foreground visibility for browsers without Background Sync.
 
-Authentication and final authorization remain online operations. A first-time user cannot sign in offline, accepting an invitation cannot expose a previously inaccessible list until the server approves it, and revoked access cannot be learned while a device is disconnected. Cached data is cleared when the authenticated account changes or signs out.
+Authentication and final authorization remain online operations. A first-time user cannot sign in offline, newly granted access cannot expose a previously inaccessible list until the server approves it, and revoked access cannot be learned while a device is disconnected. Cached data is cleared when the authenticated account changes or signs out.
 
 ## Development
 
@@ -63,7 +63,7 @@ Keep the OIDC provider subject mode at Authentik's default **Based on the User's
 
 The backend implements Users, Groups, exact-match filtering, PUT updates, group-membership PATCH updates, deletion/deactivation, ServiceProviderConfig, ResourceTypes, and Schemas. Bulk operations and SCIM OAuth authentication are not advertised. Treat `SCIM_TOKEN` as an administrative provisioning credential and restrict `/scim/v2` to Authentik at the reverse proxy when possible.
 
-In the sharing dialog, owners can use typo-tolerant search for provisioned users by friendly name, username (with or without `@`), or email and provisioned groups by name. Exact and prefix matches are ranked first. Users are added directly, groups receive a group grant, and unknown users can still receive verified-email invitations. Group grants behave like membership; the list's permission setting continues to decide whether members can write. List ownership always remains assigned to an individual account.
+In the sharing dialog, owners can use typo-tolerant search for provisioned users by friendly name, username (with or without `@`), or email and provisioned groups by name. Exact and prefix matches are ranked first. Users are added directly and groups receive a group grant. Group grants behave like membership; the list's permission setting continues to decide whether members can write. List ownership always remains assigned to an individual account.
 
 SCIM deactivation revokes active sessions and group-derived access without deleting list ownership, direct memberships, or historical data. Group deletion revokes effective group access while retaining list-grant history for safe re-provisioning. An administrator should transfer lists owned by a deprovisioned account before permanently retiring that identity.
 

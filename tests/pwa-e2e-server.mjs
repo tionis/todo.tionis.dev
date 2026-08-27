@@ -57,10 +57,6 @@ const server = http.createServer(async (request, response) => {
     json(response, { lists: [] });
     return;
   }
-  if (authenticated && request.method === 'GET' && url.pathname === '/api/invitations') {
-    json(response, { invitations: [] });
-    return;
-  }
   if (!await serveStatic(request, response, url, staticDir)) {
     response.writeHead(404).end();
   }

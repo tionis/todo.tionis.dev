@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import * as Automerge from "@automerge/automerge/slim";
 import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
@@ -20,7 +20,7 @@ import {
 import { runTransactionPhases } from "../shared/transaction-phases.mjs";
 
 export interface User { id: string; email?: string | null; name?: string | null; username?: string | null; active?: boolean }
-type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "invitations" | "pinnedLists";
+type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "pinnedLists";
 type Operation = { entity: EntityName; id: string; kind: "update" | "delete" | "link" | "unlink"; data?: Record<string, any>; links?: Record<string, string> };
 interface ListDocument { [key: string]: unknown; schemaVersion: 1; todos: Record<string, any>; categories: Record<string, any>; classifierHistory: Record<string, any> }
 interface ListState { metadata: any; document?: Automerge.Doc<ListDocument>; socket?: WebSocket; access?: "read" | "write" }
@@ -57,16 +57,16 @@ let authLoading = true;
 let authError: Error | null = null;
 let dashboardLoading = false;
 let dashboardLoaded = false;
+let dashboardRefreshPending = false;
 let dashboardError: Error | null = null;
 let dashboardIds: string[] = [];
-let invitations: any[] = [];
-let invitationsLoading = false;
-let invitationsLoaded = false;
-let invitationsError: Error | null = null;
 let outbox: QueuedRequest[] = [];
 let outboxLoaded = false;
 let outboxSyncing = false;
 let flushPromise: Promise<void> | null = null;
+let eventsSocket: WebSocket | undefined;
+const presenceByList = new Map<string, Record<string, any>>();
+const localPresenceByList = new Map<string, any>();
 let revision = 0;
 
 function emit() { revision += 1; for (const listener of listeners) listener(); }
@@ -88,7 +88,6 @@ function cacheMetadata(key: string, value: any) { if (typeof localStorage !== "u
 function cacheScope() { return user?.id || "anonymous"; }
 function listCacheKey(slug: string) { return scopedCacheKey("list", cacheScope(), slug); }
 function documentCacheKey(listId: string) { return scopedCacheKey("document", cacheScope(), listId); }
-function invitationCacheKey() { return scopedCacheKey("invitations", cacheScope(), "all"); }
 function directoryCacheKey(listId: string) { return scopedCacheKey("directory", cacheScope(), listId); }
 
 function openDocumentDatabase(): Promise<IDBDatabase> {
@@ -178,7 +177,6 @@ function clearMetadataForUser(userId: string) {
   const prefixes = [
     `smart-todos:dashboard:${userId}`,
     `smart-todos:list:${userId}:`,
-    `smart-todos:invitations:${userId}:`,
     `smart-todos:directory:${userId}:`,
   ];
   for (let index = localStorage.length - 1; index >= 0; index -= 1) {
@@ -187,8 +185,12 @@ function clearMetadataForUser(userId: string) {
   }
 }
 function clearLoadedLists() {
+  eventsSocket?.close(1000, "Account changed");
+  eventsSocket = undefined;
   for (const state of lists.values()) state.socket?.close(1000, "Account changed");
   lists.clear();
+  presenceByList.clear();
+  localPresenceByList.clear();
   dashboardLoaded = false;
   dashboardIds = [];
   outbox = [];
@@ -204,12 +206,49 @@ function websocketUrl(listId: string) {
   base.search = new URLSearchParams({ listId }).toString();
   return base.href;
 }
+function eventsWebsocketUrl() {
+  const base = new URL(apiBase || window.location.origin, window.location.origin);
+  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  base.pathname = `${base.pathname.replace(/\/$/, "")}/events`;
+  base.search = "";
+  return base.href;
+}
+function connectEvents() {
+  if (!user || eventsSocket || typeof WebSocket === "undefined") return;
+  const socket = new WebSocket(eventsWebsocketUrl());
+  eventsSocket = socket;
+  socket.onopen = () => { void loadDashboard(true); };
+  socket.onmessage = (event) => {
+    if (typeof event.data !== "string") return;
+    const message = JSON.parse(event.data);
+    if (message.type === "dashboard-changed") void loadDashboard(true);
+  };
+  socket.onclose = () => {
+    if (eventsSocket === socket) eventsSocket = undefined;
+    if (user) setTimeout(connectEvents, 2_000);
+  };
+}
 function connectList(listId: string) {
   const state = lists.get(listId);
   if (!state || state.socket || state.metadata._localOnly || state.metadata._deleted || typeof WebSocket === "undefined") return;
   const socket = new WebSocket(websocketUrl(listId)); socket.binaryType = "arraybuffer"; state.socket = socket;
   socket.onmessage = async (event) => {
-    if (typeof event.data === "string") { const message = JSON.parse(event.data); if (message.type === "ready") state.access = message.access; return; }
+    if (typeof event.data === "string") {
+      const message = JSON.parse(event.data);
+      if (message.type === "ready") {
+        state.access = message.access;
+        const localPresence = localPresenceByList.get(listId);
+        if (localPresence) socket.send(JSON.stringify({ type: "presence", data: localPresence }));
+      } else if (message.type === "metadata") {
+        state.metadata = { ...message.list, _full: true };
+        persistMetadataCaches();
+        emit();
+      } else if (message.type === "presence") {
+        presenceByList.set(listId, message.peers || {});
+        emit();
+      }
+      return;
+    }
     const remoteBytes = new Uint8Array(event.data);
     if (remoteBytes.byteLength > MAX_DOCUMENT_BYTES) { socket.close(1009, "Document too large"); return; }
     const remote = Automerge.load<ListDocument>(remoteBytes);
@@ -223,7 +262,17 @@ function connectList(listId: string) {
     }
     emit();
   };
-  socket.onclose = () => { if (state.socket === socket) state.socket = undefined; setTimeout(() => connectList(listId), 2_000); };
+  socket.onclose = (event) => {
+    if (state.socket === socket) state.socket = undefined;
+    presenceByList.delete(listId);
+    if (event.code === 1008 || event.reason === "List deleted") {
+      state.metadata = { ...state.metadata, access: { read: false, write: false, owner: false, member: false }, _deleted: true };
+      dashboardIds = dashboardIds.filter((id) => id !== listId);
+      persistMetadataCaches();
+    }
+    emit();
+    if (!state.metadata._deleted) setTimeout(() => connectList(listId), 2_000);
+  };
 }
 async function registerList(metadata: any, serializedDocument?: string) {
   await wasmReady;
@@ -236,7 +285,6 @@ async function registerList(metadata: any, serializedDocument?: string) {
       ...metadata,
       _full: true,
       members: state.metadata.members,
-      invitations: state.metadata.invitations,
       groupGrants: state.metadata.groupGrants,
     }
     : metadata;
@@ -256,7 +304,6 @@ function persistMetadataCaches() {
   for (const state of lists.values()) {
     if (state.metadata?._full && state.metadata.slug) cacheMetadata(listCacheKey(state.metadata.slug), state.metadata);
   }
-  cacheMetadata(invitationCacheKey(), { invitations });
 }
 
 async function enqueueRequest(command: Omit<QueuedRequest, "id" | "userId" | "createdAt" | "status">) {
@@ -320,7 +367,7 @@ async function flushOutbox() {
         emit();
       }
       if (delivered && typeof navigator !== "undefined" && navigator.onLine) {
-        await Promise.allSettled([loadDashboard(true), loadInvitations(true)]);
+        await loadDashboard(true);
       }
     } finally {
       outboxSyncing = false; emit();
@@ -370,7 +417,10 @@ async function loadAuth() {
       authError = error as Error;
     }
   }
-  if (user) await loadUserOutbox();
+  if (user) {
+    await loadUserOutbox();
+    connectEvents();
+  }
   authLoading = false;
   emit();
 }
@@ -391,7 +441,11 @@ if (typeof window !== "undefined") {
 }
 
 async function loadDashboard(force = false) {
-  if (dashboardLoading || (dashboardLoaded && !force)) return;
+  if (dashboardLoading) {
+    if (force) dashboardRefreshPending = true;
+    return;
+  }
+  if (dashboardLoaded && !force) return;
   dashboardLoading = true; dashboardError = null; emit();
   try {
     const result = await api("/api/lists");
@@ -417,7 +471,14 @@ async function loadDashboard(force = false) {
     const cached = mayUseOfflineFallback(error) ? cachedMetadata(`dashboard:${user?.id}`) : null;
     if (cached?.lists) { dashboardIds = cached.lists.map((list: any) => list.id); await Promise.all(cached.lists.map(registerList)); dashboardLoaded = true; dashboardError = null; }
     else dashboardError = error as Error;
-  } finally { dashboardLoading = false; emit(); }
+  } finally {
+    dashboardLoading = false;
+    emit();
+    if (dashboardRefreshPending) {
+      dashboardRefreshPending = false;
+      void loadDashboard(true);
+    }
+  }
 }
 async function loadList(slug: string, force = false) {
   if ([...lists.values()].some((state) => state.metadata.slug === slug && state.metadata._full) && !force) return;
@@ -430,18 +491,6 @@ async function loadList(slug: string, force = false) {
       lists.set(`error:${slug}`, { metadata: { slug, error } }); emit();
     }
   }
-}
-async function loadInvitations(force = false) {
-  if (invitationsLoading || (invitationsLoaded && !force) || !user) return;
-  invitationsLoading = true; emit();
-  try { invitations = (await api("/api/invitations")).invitations; invitationsLoaded = true; invitationsError = null; cacheMetadata(invitationCacheKey(), { invitations }); }
-  catch (error) {
-    const cached = mayUseOfflineFallback(error) ? cachedMetadata(invitationCacheKey()) : null;
-    if (cached?.invitations) { invitations = cached.invitations; invitationsLoaded = true; invitationsError = null; }
-    else if (mayUseOfflineFallback(error)) { invitations = []; invitationsLoaded = true; invitationsError = null; }
-    else invitationsError = error as Error;
-  }
-  finally { invitationsLoading = false; emit(); }
 }
 
 function materialize(state: ListState) {
@@ -465,7 +514,6 @@ function queryResult(query: any) {
     const values = dashboardIds.flatMap((id) => { const state = lists.get(id); const pin = state?.metadata.pins?.[0]; return state && !state.metadata._deleted && pin && !state.metadata.access?.owner && !state.metadata.access?.member ? [{ ...pin, list: materialize(state), user }] : []; });
     return { isLoading: dashboardLoading || !dashboardLoaded, error: dashboardError, data: { pinnedLists: values } };
   }
-  if (query.invitations) { const pendingOnly = query.invitations.$?.where?.status === "pending"; return { isLoading: invitationsLoading || !invitationsLoaded, error: invitationsError, data: { invitations: pendingOnly ? invitations.filter((item) => item.status === "pending") : invitations } }; }
   return { isLoading: false, error: new Error("Unsupported query"), data: null };
 }
 function useQuery(query: any) {
@@ -477,7 +525,6 @@ function useQuery(query: any) {
     if (!hasQuery) return;
     if (slug) void loadList(slug);
     else if (queryType === "todoLists" || queryType === "pinnedLists") void loadDashboard();
-    else if (queryType === "invitations") void loadInvitations();
   }, [queryType, slug, hasQuery]);
   return queryResult(query);
 }
@@ -492,7 +539,7 @@ function operationList(input: any): Operation[] { return (Array.isArray(input) ?
 function entityListId(operation: Operation, listAssociations?: Map<string, string>) {
   const linkedListId = listAssociations ? explicitListId(operation, listAssociations) : operation.links?.list;
   if (linkedListId) return linkedListId; if (operation.entity === "todoLists") return operation.id;
-  for (const [listId, state] of lists) { const document = state.document; if (document && (document.todos[operation.id] || document.categories[operation.id] || document.classifierHistory[operation.id])) return listId; if (state.metadata.members?.some((member: any) => member.id === operation.id)) return listId; if (state.metadata.invitations?.some((item: any) => item.id === operation.id)) return listId; }
+  for (const [listId, state] of lists) { const document = state.document; if (document && (document.todos[operation.id] || document.categories[operation.id] || document.classifierHistory[operation.id])) return listId; if (state.metadata.members?.some((member: any) => member.id === operation.id)) return listId; }
 }
 function applyContentOperations(document: Automerge.Doc<ListDocument>, operations: Operation[]) {
   return Automerge.change(document, (draft) => {
@@ -501,8 +548,8 @@ function applyContentOperations(document: Automerge.Doc<ListDocument>, operation
 }
 function bytesToBase64(bytes: Uint8Array) { let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary); }
 
-function findStateForEntity(entity: "listMembers" | "invitations" | "pinnedLists", id: string) {
-  return [...lists.values()].find((state) => state.metadata[entity === "listMembers" ? "members" : entity]?.some((item: any) => item.id === id));
+function findStateForEntity(entity: "listMembers" | "pinnedLists", id: string) {
+  return [...lists.values()].find((state) => state.metadata[entity === "listMembers" ? "members" : "pins"]?.some((item: any) => item.id === id));
 }
 
 function applyOptimisticMetadata(operations: Operation[], associations: Map<string, string>) {
@@ -515,20 +562,6 @@ function applyOptimisticMetadata(operations: Operation[], associations: Map<stri
       if (operation.kind === "link" && operation.links?.owner) {
         state.metadata.owner = { id: operation.links.owner };
         state.metadata.access = { ...state.metadata.access, owner: operation.links.owner === user?.id };
-      }
-      continue;
-    }
-    if (operation.entity === "invitations") {
-      const linkedListId = explicitListId(operation, associations);
-      const state = linkedListId ? lists.get(linkedListId) : findStateForEntity("invitations", operation.id);
-      if (operation.kind === "delete") {
-        if (state) state.metadata.invitations = (state.metadata.invitations || []).filter((item: any) => item.id !== operation.id);
-        invitations = invitations.filter((item) => item.id !== operation.id);
-      } else if (operation.kind === "update") {
-        const existing = state?.metadata.invitations?.find((item: any) => item.id === operation.id);
-        const value = { id: operation.id, ...existing, ...operation.data, _localOnly: !existing };
-        if (state) state.metadata.invitations = [...(state.metadata.invitations || []).filter((item: any) => item.id !== operation.id), value];
-        invitations = invitations.map((item) => item.id === operation.id ? { ...item, ...operation.data } : item);
       }
       continue;
     }
@@ -556,7 +589,7 @@ function applyOptimisticMetadata(operations: Operation[], associations: Map<stri
   persistMetadataCaches();
 }
 
-function authoritativeRequests(operations: Operation[], associations: Map<string, string>): Array<Omit<QueuedRequest, "id" | "userId" | "createdAt" | "status">> {
+function authoritativeRequests(operations: Operation[]): Array<Omit<QueuedRequest, "id" | "userId" | "createdAt" | "status">> {
   const requests: Array<Omit<QueuedRequest, "id" | "userId" | "createdAt" | "status">> = [];
   const deletedListIds = new Set(operations.filter((operation) => operation.entity === "todoLists" && operation.kind === "delete").map((operation) => operation.id));
   for (const operation of operations.filter((candidate) => candidate.entity === "todoLists")) {
@@ -570,13 +603,6 @@ function authoritativeRequests(operations: Operation[], associations: Map<string
     if (listId && deletedListIds.has(listId)) continue;
     if (listId && operation.kind === "link") requests.push({ listId, method: "POST", path: `/api/lists/${listId}/pin` });
     if (listId && operation.kind === "delete") requests.push({ listId, method: "DELETE", path: `/api/lists/${listId}/pin` });
-  }
-  for (const operation of operations.filter((candidate) => candidate.entity === "invitations")) {
-    const listId = explicitListId(operation, associations) || findStateForEntity("invitations", operation.id)?.metadata.id;
-    if (listId && deletedListIds.has(listId)) continue;
-    if (operation.kind === "delete") requests.push({ listId, method: "DELETE", path: `/api/invitations/${operation.id}` });
-    else if (operation.kind === "update" && operation.data?.status && !operation.links?.list) requests.push({ listId, method: "PATCH", path: `/api/invitations/${operation.id}`, body: { status: operation.data.status } });
-    else if (operation.kind === "update" && listId) requests.push({ listId, method: "POST", path: `/api/lists/${listId}/invitations`, body: { id: operation.id, ...operation.data } });
   }
   if (!transfer) for (const operation of operations.filter((candidate) => candidate.entity === "listMembers" && candidate.kind === "delete")) {
     const listId = findStateForEntity("listMembers", operation.id)?.metadata.id;
@@ -616,7 +642,7 @@ async function transact(input: any) {
       id: newList.id,
       ...newList.data,
       owner: user,
-      members: [], invitations: [], groupGrants: [], pins: [],
+      members: [], groupGrants: [], pins: [],
       access: { read: true, write: true, owner: true, member: false },
       _full: true, _localOnly: true,
     };
@@ -655,7 +681,7 @@ async function transact(input: any) {
       }
     },
   ]);
-  const requests = authoritativeRequests(operations, listAssociations);
+  const requests = authoritativeRequests(operations);
   applyOptimisticMetadata(operations, listAssociations);
   const queued = [];
   for (const request of requests) queued.push(await enqueueRequest(request));
@@ -681,7 +707,7 @@ export const db = {
     outbox = await readOutbox();
     outboxLoaded = true;
     emit();
-    await Promise.allSettled([loadDashboard(true), loadInvitations(true)]);
+    await loadDashboard(true);
   },
   async retryRejected() {
     for (const command of outbox.filter((candidate) => candidate.status === "rejected")) {
@@ -703,7 +729,7 @@ export const db = {
     }
     outbox = outbox.filter((candidate) => candidate.status !== "rejected");
     emit();
-    await Promise.allSettled([loadDashboard(true), loadInvitations(true)]);
+    await loadDashboard(true);
   },
   auth: {
     signIn() { const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`; window.location.href = `${apiBase}/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`; },
@@ -716,8 +742,6 @@ export const db = {
       user = null;
       cacheMetadata("auth:user", null);
       cacheMetadata("auth:last-user", null);
-      invitations = [];
-      invitationsLoaded = false;
       emit();
     },
   },
@@ -762,7 +786,36 @@ export const db = {
       if (queued.status === "rejected") throw new Error(queued.error);
     },
   },
-  rooms: { usePresence(_room?: any, _options?: any) { return { peers: {}, publishPresence: presenceNoop, user: user ? { name: userDisplayName(user), userId: user.id } : null }; } },
+  rooms: {
+    usePresence(room?: { type: string; id: string }, options?: { initialData?: any }) {
+      useSyncExternalStore(subscribe, snapshot, () => 0);
+      const state = room ? [...lists.values()].find((candidate) => candidate.metadata.slug === room.id) : undefined;
+      const listId = state?.metadata.id as string | undefined;
+      const initialData = options?.initialData;
+      useEffect(() => {
+        if (!listId) return;
+        const data = { name: userDisplayName(user), userId: user?.id };
+        localPresenceByList.set(listId, data);
+        const socket = lists.get(listId)?.socket;
+        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "presence", data }));
+        return () => {
+          localPresenceByList.delete(listId);
+          presenceByList.delete(listId);
+          if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "presence-leave" }));
+          emit();
+        };
+      }, [listId]);
+      const publishPresence = useCallback((data: any) => {
+        if (!listId) return;
+        localPresenceByList.set(listId, data);
+        const socket = lists.get(listId)?.socket;
+        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "presence", data }));
+      }, [listId]);
+      return {
+        peers: listId ? presenceByList.get(listId) || {} : {},
+        publishPresence,
+        user: user ? (listId ? localPresenceByList.get(listId) : null) || initialData || { name: userDisplayName(user), userId: user.id } : null,
+      };
+    },
+  },
 };
-
-function presenceNoop(_presence?: any) {}

@@ -14,18 +14,6 @@ export interface TodoListMember {
   addedAt: string;
 }
 
-export interface TodoListInvitation {
-  id: string;
-  email: string;
-  role: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  invitedAt: string;
-  invitedBy?: {
-    id: string;
-    email?: string;
-  };
-}
-
 export interface TodoListBasic {
   id: string;
   name: string;
@@ -39,7 +27,6 @@ export interface TodoListBasic {
     email?: string;
   };
   members: TodoListMember[];
-  invitations: TodoListInvitation[];
 }
 
 export interface FeedbackMessage {

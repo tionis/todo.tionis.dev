@@ -15,7 +15,6 @@ import { loadConfig } from "./config.mjs";
 import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
 import { deleteClassifierHistoryThrough, DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
 import { rankDirectoryEntries } from "./directory-search.mjs";
-import { consumeInvitation } from "./invitations.mjs";
 import { transferListOwnership } from "./ownership.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 import { createFixedWindowRateLimiter } from "./rate-limit.mjs";
@@ -109,6 +108,18 @@ function accessFor(list, user) {
   return calculateAccess(database, list, user);
 }
 
+function dashboardUserIdsForList(listId) {
+  return database.prepare(`
+    SELECT owner_id AS user_id FROM lists WHERE id = ?
+    UNION SELECT user_id FROM members WHERE list_id = ?
+    UNION SELECT user_id FROM pins WHERE list_id = ?
+    UNION SELECT memberships.user_id
+      FROM list_group_grants grants
+      JOIN directory_group_members memberships ON memberships.group_id = grants.group_id
+      WHERE grants.list_id = ?
+  `).all(listId, listId, listId, listId).map((row) => row.user_id);
+}
+
 function userShape(row) {
   return row ? {
     id: row.id,
@@ -155,24 +166,6 @@ function listShape(row, user, full = false) {
     addedAt: grant.added_at,
     group: { id: grant.group_id, name: grant.display_name, externalId: grant.external_id },
   })) : [];
-  const invitations = full && access.owner ? database.prepare(`
-    SELECT invitations.*, users.id AS inviter_user_id, users.email AS inviter_email,
-      users.name AS inviter_name, users.username AS inviter_username
-    FROM invitations JOIN users ON users.id = invitations.inviter_id
-    WHERE invitations.list_id = ? ORDER BY invitations.invited_at DESC
-  `).all(row.id).map((invitation) => ({
-    id: invitation.id,
-    email: invitation.email,
-    role: invitation.role,
-    status: invitation.status,
-    invitedAt: invitation.invited_at,
-    inviter: {
-      id: invitation.inviter_user_id,
-      email: invitation.inviter_email,
-      name: invitation.inviter_name,
-      username: invitation.inviter_username,
-    },
-  })) : [];
   const pin = user ? database.prepare(
     "SELECT id, created_at FROM pins WHERE list_id = ? AND user_id = ?"
   ).get(row.id, user.id) : null;
@@ -192,7 +185,6 @@ function listShape(row, user, full = false) {
     owner: userShape(owner),
     members,
     groupGrants,
-    invitations,
     pins: pin && user ? [{ id: pin.id, createdAt: pin.created_at, user: userShape(user) }] : [],
     access,
   };
@@ -273,10 +265,7 @@ async function handleApi(request, response, url) {
       )
       ORDER BY lists.created_at DESC
     `).all(user.id, user.id, user.id, user.id);
-    const invitationCount = user.email && user.emailVerified ? database.prepare(
-      "SELECT COUNT(*) AS count FROM invitations WHERE lower(email) = lower(?) AND status = 'pending'"
-    ).get(user.email).count : 0;
-    json(response, 200, { lists: rows.map((row) => listShape(row, user)), pendingInvitationsCount: invitationCount });
+    json(response, 200, { lists: rows.map((row) => listShape(row, user)) });
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/lists") {
@@ -311,6 +300,7 @@ async function handleApi(request, response, url) {
       database.prepare("DELETE FROM lists WHERE id = ?").run(id);
       throw error;
     }
+    notifyDashboardUsers([user.id]);
     json(response, 201, { list: listShape(listRowById(id), user, true) });
     return;
   }
@@ -334,6 +324,7 @@ async function handleApi(request, response, url) {
     const id = decodeURIComponent(listMatch[1]);
     const row = listRowById(id);
     if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can change list settings");
+    const affectedUserIds = dashboardUserIdsForList(id);
     const body = await readJson(request);
     const next = {
       name: typeof body.name === "string" && body.name.trim() ? body.name.trim() : row.name,
@@ -352,6 +343,7 @@ async function handleApi(request, response, url) {
     `).run(next.name, next.permission, next.tags, next.hideCompleted, next.autoSortTodos,
       next.classifierAggressiveness, next.classifierResetAt, next.archivedAt, new Date().toISOString(), id);
     refreshListConnections(id);
+    notifyDashboardUsers(affectedUserIds);
     json(response, 200, { list: listShape(listRowById(id), user, true) });
     return;
   }
@@ -363,10 +355,12 @@ async function handleApi(request, response, url) {
     const row = listRowById(id);
     if (!row) return json(response, 200, { ok: true });
     if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can delete this list");
+    const affectedUserIds = dashboardUserIdsForList(id);
     database.prepare("DELETE FROM lists WHERE id = ?").run(id);
     await documents.delete(id);
     for (const client of clientsByList.get(id) || []) client.close(1000, "List deleted");
     clientsByList.delete(id);
+    notifyDashboardUsers(affectedUserIds);
     json(response, 200, { ok: true });
     return;
   }
@@ -382,6 +376,7 @@ async function handleApi(request, response, url) {
     const id = existing?.id || crypto.randomUUID();
     database.prepare("INSERT OR IGNORE INTO pins (id, list_id, user_id, created_at) VALUES (?, ?, ?, ?)")
       .run(id, row.id, user.id, new Date().toISOString());
+    notifyDashboardUsers([user.id]);
     json(response, 200, { id });
     return;
   }
@@ -390,6 +385,7 @@ async function handleApi(request, response, url) {
     const user = requireUser(request, response);
     if (!user) return;
     database.prepare("DELETE FROM pins WHERE list_id = ? AND user_id = ?").run(decodeURIComponent(pinMatch[1]), user.id);
+    notifyDashboardUsers([user.id]);
     json(response, 200, { ok: true });
     return;
   }
@@ -436,6 +432,7 @@ async function handleApi(request, response, url) {
     database.prepare("INSERT OR IGNORE INTO members (id, list_id, user_id, role, added_at) VALUES (?, ?, ?, 'member', ?)")
       .run(id, listId, target.id, new Date().toISOString());
     refreshListConnections(listId);
+    notifyDashboardUsers([target.id]);
     json(response, existing ? 200 : 201, { id });
     return;
   }
@@ -455,6 +452,7 @@ async function handleApi(request, response, url) {
     database.prepare("INSERT OR IGNORE INTO list_group_grants (id, list_id, group_id, role, added_at) VALUES (?, ?, ?, 'member', ?)")
       .run(id, listId, group.id, new Date().toISOString());
     refreshListConnections(listId);
+    notifyDashboardUsers(database.prepare("SELECT user_id FROM directory_group_members WHERE group_id = ?").all(group.id).map((row) => row.user_id));
     json(response, existing ? 200 : 201, { id });
     return;
   }
@@ -467,32 +465,11 @@ async function handleApi(request, response, url) {
     const grant = database.prepare("SELECT * FROM list_group_grants WHERE id = ?").get(decodeURIComponent(groupGrantMatch[1]));
     if (!grant) return json(response, 200, { ok: true });
     if (!accessFor(listRowById(grant.list_id), user).owner) return fail(response, 403, "Only the owner can remove group access");
+    const affectedUserIds = database.prepare("SELECT user_id FROM directory_group_members WHERE group_id = ?").all(grant.group_id).map((row) => row.user_id);
     database.prepare("DELETE FROM list_group_grants WHERE id = ?").run(grant.id);
     refreshListConnections(grant.list_id);
+    notifyDashboardUsers(affectedUserIds);
     json(response, 200, { ok: true });
-    return;
-  }
-
-  const inviteListMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/invitations$/);
-  if (inviteListMatch && request.method === "POST") {
-    if (!trustedMutation(request, response)) return;
-    const user = requireUser(request, response);
-    if (!user) return;
-    const listId = decodeURIComponent(inviteListMatch[1]);
-    if (!accessFor(listRowById(listId), user).owner) return fail(response, 403, "Only the owner can invite members");
-    const body = await readJson(request);
-    if (!body.email?.trim()) return fail(response, 400, "Email is required");
-    const id = body.id || crypto.randomUUID();
-    const existing = database.prepare("SELECT * FROM invitations WHERE id = ?").get(id);
-    if (existing) {
-      if (existing.list_id !== listId || existing.inviter_id !== user.id) return fail(response, 409, "Invitation id is already in use");
-      return json(response, 200, { id });
-    }
-    database.prepare(`
-      INSERT INTO invitations (id, list_id, inviter_id, email, role, status, invited_at)
-      VALUES (?, ?, ?, ?, 'member', 'pending', ?)
-    `).run(id, listId, user.id, body.email.trim().toLowerCase(), new Date().toISOString());
-    json(response, 201, { id });
     return;
   }
 
@@ -508,6 +485,7 @@ async function handleApi(request, response, url) {
     if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can transfer this list");
     transferListOwnership(database, { listId, currentOwnerId: user.id, newOwnerId: body.userId });
     refreshListConnections(listId);
+    notifyDashboardUsers([user.id, body.userId]);
     json(response, 200, { ok: true });
     return;
   }
@@ -531,53 +509,6 @@ async function handleApi(request, response, url) {
     return;
   }
 
-  if (request.method === "GET" && url.pathname === "/api/invitations") {
-    const user = requireUser(request, response);
-    if (!user) return;
-    const rows = user.email && user.emailVerified ? database.prepare(`
-      SELECT invitations.*, lists.name AS list_name, lists.slug AS list_slug,
-        users.id AS inviter_user_id, users.email AS inviter_email,
-        users.name AS inviter_name, users.username AS inviter_username
-      FROM invitations
-      JOIN lists ON lists.id = invitations.list_id
-      JOIN users ON users.id = invitations.inviter_id
-      WHERE lower(invitations.email) = lower(?)
-      ORDER BY invitations.invited_at DESC
-    `).all(user.email) : [];
-    json(response, 200, { invitations: rows.map((row) => ({
-      id: row.id, email: row.email, role: row.role, status: row.status,
-      invitedAt: row.invited_at,
-      inviter: { id: row.inviter_user_id, email: row.inviter_email, name: row.inviter_name, username: row.inviter_username },
-      list: { id: row.list_id, name: row.list_name, slug: row.list_slug },
-    })) });
-    return;
-  }
-  const invitationMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)$/);
-  if (invitationMatch && request.method === "PATCH") {
-    if (!trustedMutation(request, response)) return;
-    const user = requireUser(request, response);
-    if (!user) return;
-    const invitation = database.prepare("SELECT * FROM invitations WHERE id = ?").get(decodeURIComponent(invitationMatch[1]));
-    if (!invitation || !user.emailVerified || !user.email || invitation.email.toLowerCase() !== user.email.toLowerCase()) return fail(response, 403, "Invitation access denied");
-    const body = await readJson(request);
-    if (!new Set(["accepted", "declined"]).has(body.status)) return fail(response, 400, "Invalid invitation status");
-    if (invitation.status === body.status) return json(response, 200, { ok: true });
-    consumeInvitation(database, invitation, user.id, body.status);
-    json(response, 200, { ok: true });
-    return;
-  }
-  if (invitationMatch && request.method === "DELETE") {
-    if (!trustedMutation(request, response)) return;
-    const user = requireUser(request, response);
-    if (!user) return;
-    const invitation = database.prepare("SELECT * FROM invitations WHERE id = ?").get(decodeURIComponent(invitationMatch[1]));
-    if (!invitation) return json(response, 200, { ok: true });
-    if (!accessFor(listRowById(invitation.list_id), user).owner) return fail(response, 403, "Only the owner can remove invitations");
-    database.prepare("DELETE FROM invitations WHERE id = ?").run(invitation.id);
-    json(response, 200, { ok: true });
-    return;
-  }
-
   const memberMatch = url.pathname.match(/^\/api\/members\/([^/]+)$/);
   if (memberMatch && request.method === "DELETE") {
     if (!trustedMutation(request, response)) return;
@@ -589,6 +520,7 @@ async function handleApi(request, response, url) {
     if (!access.owner && member.user_id !== user.id) return fail(response, 403, "Member access denied");
     database.prepare("DELETE FROM members WHERE id = ?").run(member.id);
     refreshListConnections(member.list_id);
+    notifyDashboardUsers([member.user_id]);
     json(response, 200, { ok: true });
     return;
   }
@@ -607,6 +539,7 @@ const server = http.createServer(async (request, response) => {
         config,
         onAccessChanged(listIds) {
           for (const listId of new Set(listIds)) refreshListConnections(listId);
+          notifyAllDashboards();
         },
       });
     } else if (url.pathname.startsWith("/api/") || url.pathname === "/sync") {
@@ -623,15 +556,48 @@ const server = http.createServer(async (request, response) => {
 
 const webSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_DOCUMENT_BYTES });
 const clientsByList = new Map();
+const eventClientsByUser = new Map();
+
+function notifyDashboardUsers(userIds) {
+  for (const userId of new Set(userIds.filter(Boolean))) {
+    for (const client of eventClientsByUser.get(userId) || []) {
+      if (client.readyState === 1) client.send(JSON.stringify({ type: "dashboard-changed" }));
+    }
+  }
+}
+
+function notifyAllDashboards() {
+  notifyDashboardUsers([...eventClientsByUser.keys()]);
+}
+
+function presenceName(user) {
+  return user?.name || user?.username || user?.email || "Anonymous";
+}
+
+function broadcastPresence(listId) {
+  const clients = [...(clientsByList.get(listId) || [])].filter((client) => client.presence && client.readyState === 1);
+  for (const receiver of clients) {
+    const peers = {};
+    for (const peer of clients) {
+      if (peer === receiver || (receiver.user?.id && peer.user?.id === receiver.user.id)) continue;
+      const key = peer.user?.id || peer.connectionId;
+      peers[key] = peer.presence;
+    }
+    receiver.send(JSON.stringify({ type: "presence", peers }));
+  }
+}
 
 function broadcastDocument(listId, document) {
   const bytes = Automerge.save(document);
   for (const client of clientsByList.get(listId) || []) {
-    const access = accessFor(listRowById(listId), getUserForSession(database, client.sessionToken));
+    const currentUser = getUserForSession(database, client.sessionToken);
+    const list = listRowById(listId);
+    const access = accessFor(list, currentUser);
     if (!access.read) client.close(1008, "List access revoked");
     else if (client.readyState === 1) {
       client.access = access;
       client.send(JSON.stringify({ type: "ready", access: access.write ? "write" : "read" }));
+      client.send(JSON.stringify({ type: "metadata", list: listShape(list, currentUser, true) }));
       client.send(bytes);
     }
   }
@@ -644,14 +610,25 @@ function refreshListConnections(listId) {
 server.on("upgrade", (request, socket, head) => {
   try {
     const url = new URL(request.url || "/", config.publicUrl);
-    if (url.pathname !== "/sync" || request.headers.origin !== config.appOrigin.origin) return socket.destroy();
+    if (!new Set(["/sync", "/events"]).has(url.pathname) || request.headers.origin !== config.appOrigin.origin) return socket.destroy();
+    const currentUser = requestUser(request);
+    if (url.pathname === "/events") {
+      if (!currentUser) return socket.destroy();
+      return webSockets.handleUpgrade(request, socket, head, (webSocket) => {
+        webSocket.channel = "events";
+        webSocket.user = currentUser;
+        webSockets.emit("connection", webSocket);
+      });
+    }
     const listId = url.searchParams.get("listId");
     const list = listId ? listRowById(listId) : null;
-    const access = accessFor(list, requestUser(request));
+    const access = accessFor(list, currentUser);
     if (!list || !access.read) return socket.destroy();
     webSockets.handleUpgrade(request, socket, head, (webSocket) => {
+      webSocket.channel = "list";
       webSocket.listId = listId;
       webSocket.access = access;
+      webSocket.user = currentUser;
       webSocket.sessionToken = cookies(request).smart_todos_session;
       webSockets.emit("connection", webSocket);
     });
@@ -661,15 +638,42 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 webSockets.on("connection", async (webSocket) => {
+  if (webSocket.channel === "events") {
+    const userId = webSocket.user.id;
+    if (!eventClientsByUser.has(userId)) eventClientsByUser.set(userId, new Set());
+    eventClientsByUser.get(userId).add(webSocket);
+    webSocket.on("close", () => {
+      const clients = eventClientsByUser.get(userId);
+      clients?.delete(webSocket);
+      if (!clients?.size) eventClientsByUser.delete(userId);
+    });
+    return;
+  }
   const { listId, access } = webSocket;
+  webSocket.connectionId = crypto.randomUUID();
   webSocket.pendingUpdates = 0;
   if (!clientsByList.has(listId)) clientsByList.set(listId, new Set());
   clientsByList.get(listId).add(webSocket);
   webSocket.send(JSON.stringify({ type: "ready", access: access.write ? "write" : "read" }));
+  webSocket.send(JSON.stringify({ type: "metadata", list: listShape(listRowById(listId), webSocket.user, true) }));
   webSocket.send(Automerge.save(await documents.load(listId)));
 
   webSocket.on("message", async (data, isBinary) => {
-    if (!isBinary) return;
+    if (!isBinary) {
+      try {
+        const message = JSON.parse(data.toString());
+        if (message.type === "presence") {
+          webSocket.presence = { name: presenceName(webSocket.user), userId: webSocket.user?.id };
+          broadcastPresence(listId);
+        } else if (message.type === "presence-leave") {
+          webSocket.presence = null;
+          broadcastPresence(listId);
+        }
+      } catch {
+        webSocket.close(1008, "Invalid realtime message");
+      }
+      return;
+    }
     if (webSocket.pendingUpdates >= 4) {
       webSocket.close(1008, "Too many pending updates");
       return;
@@ -694,6 +698,7 @@ webSockets.on("connection", async (webSocket) => {
     const clients = clientsByList.get(listId);
     clients?.delete(webSocket);
     if (!clients?.size) clientsByList.delete(listId);
+    else if (webSocket.presence) broadcastPresence(listId);
   });
 });
 

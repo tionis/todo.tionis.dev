@@ -5,7 +5,6 @@ import path from "node:path";
 import test from "node:test";
 import { accessFor } from "./access.mjs";
 import { openDatabase } from "./database.mjs";
-import { consumeInvitation } from "./invitations.mjs";
 import { transferListOwnership } from "./ownership.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 
@@ -13,59 +12,6 @@ test("public outsiders cannot receive membership identities", () => {
   assert.equal(mayExposeMemberIdentities({ read: true, write: false, owner: false, member: false }), false);
   assert.equal(mayExposeMemberIdentities({ read: true, write: true, owner: false, member: true }), true);
   assert.equal(mayExposeMemberIdentities({ read: true, write: true, owner: true, member: false }), true);
-});
-
-test("an invitation is consumed once and cannot restore revoked membership", async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "smart-todos-invitations-"));
-  const database = openDatabase(directory);
-  try {
-    const now = new Date().toISOString();
-    database.prepare("INSERT INTO users (id, issuer, subject, email, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run("owner", "issuer", "owner-sub", "owner@example.com", "Owner", now, now);
-    database.prepare("INSERT INTO users (id, issuer, subject, email, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run("invitee", "issuer", "invitee-sub", "invitee@example.com", "Invitee", now, now);
-    database.prepare(`
-      INSERT INTO lists (id, owner_id, name, slug, permission, created_at, updated_at)
-      VALUES ('list-1', 'owner', 'Groceries', 'groceries', 'private-write', ?, ?)
-    `).run(now, now);
-    database.prepare(`
-      INSERT INTO invitations (id, list_id, inviter_id, email, role, status, invited_at)
-      VALUES ('invite-1', 'list-1', 'owner', 'invitee@example.com', 'member', 'pending', ?)
-    `).run(now);
-
-    const invitation = database.prepare("SELECT * FROM invitations WHERE id = 'invite-1'").get();
-    consumeInvitation(database, invitation, "invitee", "accepted", now);
-    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM members WHERE user_id = 'invitee'").get().count, 1);
-
-    database.prepare("DELETE FROM members WHERE user_id = 'invitee'").run();
-    assert.throws(
-      () => consumeInvitation(database, invitation, "invitee", "accepted", now),
-      (error) => error.status === 409,
-    );
-    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM members WHERE user_id = 'invitee'").get().count, 0);
-  } finally {
-    database.close();
-    await fs.rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("declining an invitation never creates membership", async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "smart-todos-invitations-"));
-  const database = openDatabase(directory);
-  try {
-    const now = new Date().toISOString();
-    database.prepare("INSERT INTO users (id, issuer, subject, email, created_at, updated_at) VALUES ('owner', 'issuer', 'owner', 'owner@example.com', ?, ?)").run(now, now);
-    database.prepare("INSERT INTO users (id, issuer, subject, email, created_at, updated_at) VALUES ('invitee', 'issuer', 'invitee', 'invitee@example.com', ?, ?)").run(now, now);
-    database.prepare("INSERT INTO lists (id, owner_id, name, slug, permission, created_at, updated_at) VALUES ('list-1', 'owner', 'List', 'list', 'private-write', ?, ?)").run(now, now);
-    database.prepare("INSERT INTO invitations (id, list_id, inviter_id, email, role, status, invited_at) VALUES ('invite-1', 'list-1', 'owner', 'invitee@example.com', 'member', 'pending', ?)").run(now);
-
-    consumeInvitation(database, database.prepare("SELECT * FROM invitations WHERE id = 'invite-1'").get(), "invitee", "declined", now);
-    assert.equal(database.prepare("SELECT status FROM invitations WHERE id = 'invite-1'").get().status, "declined");
-    assert.equal(database.prepare("SELECT COUNT(*) AS count FROM members WHERE user_id = 'invitee'").get().count, 0);
-  } finally {
-    database.close();
-    await fs.rm(directory, { recursive: true, force: true });
-  }
 });
 
 test("ownership transfer swaps owner membership and rolls back completely on failure", async () => {
