@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import http from "node:http";
-import * as Automerge from "@automerge/automerge";
 import { WebSocketServer } from "ws";
 import {
   beginLogin,
@@ -13,7 +12,7 @@ import {
 import { accessFor as calculateAccess } from "./access.mjs";
 import { loadConfig } from "./config.mjs";
 import { getUserForSession, hashToken, openDatabase } from "./database.mjs";
-import { deleteClassifierHistoryThrough, DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
+import { DocumentStore, MAX_DOCUMENT_BYTES } from "./documents.mjs";
 import { rankDirectoryEntries } from "./directory-search.mjs";
 import { transferListOwnership } from "./ownership.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
@@ -313,7 +312,7 @@ async function handleApi(request, response, url) {
     const user = requestUser(request);
     const access = accessFor(row, user);
     if (!access.read) return fail(response, row ? 403 : 404, row ? "List access denied" : "List not found");
-    const document = Buffer.from(Automerge.save(await documents.load(row.id))).toString("base64");
+    const document = Buffer.from(await documents.load(row.id)).toString("base64");
     json(response, 200, { list: listShape(row, user, true), document });
     return;
   }
@@ -519,9 +518,7 @@ async function handleApi(request, response, url) {
     if (!accessFor(listRowById(listId), user).owner) return fail(response, 403, "Only the owner can reset classifier history");
     const body = await readJson(request);
     const resetAt = typeof body.resetAt === "string" ? body.resetAt : new Date().toISOString();
-    const document = await documents.change(listId, (draft) => {
-      deleteClassifierHistoryThrough(draft, resetAt);
-    });
+    const document = await documents.resetClassifierHistory(listId, resetAt);
     database.prepare("UPDATE lists SET classifier_reset_at = ?, updated_at = ? WHERE id = ?")
       .run(resetAt, resetAt, listId);
     broadcastDocument(listId, document);
@@ -607,8 +604,7 @@ function broadcastPresence(listId) {
   }
 }
 
-function broadcastDocument(listId, document) {
-  const bytes = Automerge.save(document);
+function broadcastDocument(listId, bytes) {
   for (const client of clientsByList.get(listId) || []) {
     const currentUser = getUserForSession(database, client.sessionToken);
     const list = listRowById(listId);
@@ -624,7 +620,10 @@ function broadcastDocument(listId, document) {
 }
 
 function refreshListConnections(listId) {
-  void documents.load(listId).then((document) => broadcastDocument(listId, document));
+  void documents.load(listId).then((document) => broadcastDocument(listId, document)).catch((error) => {
+    console.error("Failed to refresh list connections", error);
+    for (const client of clientsByList.get(listId) || []) client.close(1013, "Please reconnect");
+  });
 }
 
 server.on("upgrade", (request, socket, head) => {
@@ -674,9 +673,23 @@ webSockets.on("connection", async (webSocket) => {
   webSocket.pendingUpdates = 0;
   if (!clientsByList.has(listId)) clientsByList.set(listId, new Set());
   clientsByList.get(listId).add(webSocket);
+  webSocket.on("close", () => {
+    const clients = clientsByList.get(listId);
+    clients?.delete(webSocket);
+    if (!clients?.size) clientsByList.delete(listId);
+    else if (webSocket.presence) broadcastPresence(listId);
+  });
   webSocket.send(JSON.stringify({ type: "ready", access: access.write ? "write" : "read" }));
   webSocket.send(JSON.stringify({ type: "metadata", list: listShape(listRowById(listId), webSocket.user, true) }));
-  webSocket.send(Automerge.save(await documents.load(listId)));
+  try {
+    const document = await documents.load(listId);
+    if (webSocket.readyState !== 1) return;
+    webSocket.send(document);
+  } catch (error) {
+    console.error("Failed to load list connection", error);
+    webSocket.close(1013, "Please reconnect");
+    return;
+  }
 
   webSocket.on("message", async (data, isBinary) => {
     if (!isBinary) {
@@ -709,17 +722,16 @@ webSockets.on("connection", async (webSocket) => {
       broadcastDocument(listId, merged);
     } catch (error) {
       console.error("Rejected Automerge update", error);
+      if (error.status === 503) {
+        webSocket.close(1013, "Document processor is busy; retry shortly");
+        return;
+      }
       if (webSocket.readyState === 1) webSocket.send(JSON.stringify({ type: "error", message: "Invalid document update" }));
     } finally {
       webSocket.pendingUpdates -= 1;
     }
   });
-  webSocket.on("close", () => {
-    const clients = clientsByList.get(listId);
-    clients?.delete(webSocket);
-    if (!clients?.size) clientsByList.delete(listId);
-    else if (webSocket.presence) broadcastPresence(listId);
-  });
+
 });
 
 server.listen(config.port, config.host, () => {

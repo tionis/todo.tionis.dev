@@ -139,7 +139,17 @@ For production rollouts, replace `latest` in the Quadlet with the tested `sha-<c
 
 The backend data directory contains `metadata.sqlite` (including its WAL files) and one `.automerge` file per list. Put `DATA_DIR` on persistent storage and back it up as a unit while the container is stopped, or use an atomic filesystem/volume snapshot. Test restoration before cutover.
 
-Automerge inputs and persisted documents are capped at 2 MB, documents at 10,000 total records, and imports at 4 MB. Untrusted Automerge parsing and merging runs in a memory-limited worker with a timeout and bounded queue. These controls protect the server and browser main thread from unbounded CRDT history, nested data, parser amplification, and oversized imports.
+Automerge inputs and persisted documents are capped at 2 MB, documents at 10,000 total records, and imports at 4 MB. All backend Automerge parsing, schema validation, merging, and classifier resets run in one worker with a ten-second operation timeout. The HTTP process handles serialized bytes only, with an LRU cache limited to 16 documents and 4 MB. Document-store admission allows at most 100 outstanding operations and 8 MB of submitted document bytes, including updates waiting behind another operation on the same list.
+
+The worker explicitly frees temporary Automerge handles on both success and failure. After 30 seconds without work it exits, releasing retained WebAssembly memory; the next uncached read or mutation starts a new worker. This adds worker startup latency after idle periods. V8 worker heap limits do **not** bound WebAssembly memory or total service RSS, so the systemd/container memory limits remain necessary. The on-disk Automerge format, CRDT history, offline merge semantics, and HTTP/WebSocket document encoding are unchanged; no data migration is required.
+
+To compare document-processing memory on the same Node version and machine, run:
+
+```bash
+node --expose-gc scripts/benchmark-memory.mjs --idle
+```
+
+The benchmark uses invented data (100 lists with 200 items each, followed by 300 merges), reports RSS and elapsed time, and optionally waits for idle-worker retirement. It excludes the rest of the service, health-check subprocesses, and cgroup page-cache accounting. Use live cgroup `memory.current`, `memory.events.local`, and `memory.pressure` after deploying to decide whether service limits still need adjustment; synthetic RSS alone is not a safe sizing limit.
 
 Required backend configuration:
 
