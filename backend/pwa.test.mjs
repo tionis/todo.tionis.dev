@@ -170,7 +170,7 @@ test("does not runtime-cache unknown same-origin responses", async () => {
   }
 });
 
-test("background sync delivers the IndexedDB outbox without an open window", async () => {
+test("background sync drains document edits queued during an active flush without an open window", async () => {
   const value = await fixture();
   try {
     await generateServiceWorker({ ...value });
@@ -181,9 +181,9 @@ test("background sync delivers the IndexedDB outbox without an open window", asy
       userId: "user-1",
       createdAt: "2026-08-24T10:00:00.000Z",
       status: "pending",
-      method: "PATCH",
-      path: "/api/lists/list-1",
-      body: { name: "Groceries" },
+      method: "POST",
+      path: "/api/lists/list-1/document",
+      body: { document: "automerge-base64" },
     }];
     const idbResult = (result) => {
       const request = {};
@@ -218,10 +218,23 @@ test("background sync delivers the IndexedDB outbox without an open window", asy
       },
     };
     const requests = [];
+    let queuedLateCommand = false;
     const fetch = async (url, init) => {
       requests.push({ url, init });
       if (url.endsWith("/api/auth/session")) {
         return Response.json({ user: { id: "user-1" } });
+      }
+      if (!queuedLateCommand) {
+        queuedLateCommand = true;
+        commands.push({
+          id: "command-2",
+          userId: "user-1",
+          createdAt: "2026-08-24T10:00:01.000Z",
+          status: "pending",
+          method: "PATCH",
+          path: "/api/lists/list-1",
+          body: { name: "Groceries" },
+        });
       }
       return Response.json({ ok: true });
     };
@@ -235,6 +248,13 @@ test("background sync delivers the IndexedDB outbox without an open window", asy
       self, caches: {}, fetch, indexedDB, URL, Response, JSON, Promise, TypeError, console,
     });
 
+    let capabilities;
+    handlers.get("message")({
+      data: { action: "outbox-capabilities" },
+      ports: [{ postMessage: (value) => { capabilities = value; } }],
+    });
+    assert.equal(capabilities.outboxFlush, true);
+
     let syncPromise;
     handlers.get("sync")({
       tag: "smart-todos-outbox",
@@ -243,9 +263,32 @@ test("background sync delivers the IndexedDB outbox without an open window", asy
     await syncPromise;
 
     assert.equal(commands.length, 0);
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[1].url, "https://todo.example/api/lists/list-1/document");
     assert.equal(requests[1].init.headers["Idempotency-Key"], "command-1");
     assert.equal(requests[1].init.credentials, "include");
+    assert.equal(requests[2].init.headers["Idempotency-Key"], "command-2");
+
+    commands.push({
+      id: "command-3",
+      userId: "user-1",
+      createdAt: "2026-08-24T10:00:02.000Z",
+      status: "pending",
+      method: "POST",
+      path: "/api/lists/list-1/document",
+      body: { document: "newer-automerge-base64" },
+    });
+    let messagePromise;
+    let messageReply;
+    handlers.get("message")({
+      data: { action: "flush-outbox" },
+      ports: [{ postMessage: (value) => { messageReply = value; } }],
+      waitUntil: (promise) => { messagePromise = promise; },
+    });
+    await messagePromise;
+    assert.equal(messageReply.ok, true);
+    assert.equal(commands.length, 0);
+    assert.equal(requests[4].init.headers["Idempotency-Key"], "command-3");
   } finally {
     await fs.rm(value.root, { recursive: true, force: true });
   }

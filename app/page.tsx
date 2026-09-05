@@ -15,6 +15,7 @@ import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
 import { useHashRouter } from "./components/HashRouter";
 import TodoListView from "./components/TodoListView";
+import { SyncStatusBadge } from "./components/OfflineIndicator";
 
 type CreateListPayload = {
   name: string;
@@ -287,6 +288,7 @@ function AuthenticatedApp({ user }: { user: User }) {
             <p className="text-gray-500">Welcome back, {userDisplayName(user)}</p>
           </div>
           <div className="flex flex-wrap gap-2 sm:gap-3">
+            <SyncStatusBadge />
             <input
               ref={importInputRef}
               type="file"

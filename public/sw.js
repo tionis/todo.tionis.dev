@@ -58,6 +58,20 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data && event.data.action === 'skipWaiting') {
     self.skipWaiting();
+    return;
+  }
+  if (event.data && event.data.action === 'outbox-capabilities') {
+    const reply = event.ports && event.ports[0];
+    if (reply) reply.postMessage({ outboxFlush: true });
+    return;
+  }
+  if (event.data && event.data.action === 'flush-outbox') {
+    const reply = event.ports && event.ports[0];
+    const flush = requestOutboxFlush();
+    event.waitUntil(flush.then(
+      () => reply && reply.postMessage({ ok: true }),
+      (error) => reply && reply.postMessage({ ok: false, error: error instanceof Error ? error.message : 'Synchronization deferred' }),
+    ));
   }
 });
 
@@ -300,37 +314,42 @@ async function flushOutboxInBackground() {
   });
   if (!sessionResponse.ok) throw new Error(`Session unavailable (${sessionResponse.status})`);
   const session = await sessionResponse.json();
-  if (!session.user?.id) return;
+  const userId = session.user?.id || 'anonymous';
 
   const database = await openOutboxDatabase();
   try {
-    const commands = (await readOutbox(database))
-      .filter((command) => command.userId === session.user.id && command.status === 'pending')
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+    // Re-read after each batch so edits queued while a flush is in progress
+    // are not stranded until the application is opened again.
+    while (true) {
+      const commands = (await readOutbox(database))
+        .filter((command) => command.userId === userId && command.status === 'pending')
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+      if (commands.length === 0) break;
 
-    for (const command of commands) {
-      const response = await fetch(`${base}${command.path}`, {
-        method: command.method,
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': command.id,
-        },
-        body: command.body === undefined ? undefined : JSON.stringify(command.body),
-      });
+      for (const command of commands) {
+        const response = await fetch(`${base}${command.path}`, {
+          method: command.method,
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': command.id,
+          },
+          body: command.body === undefined ? undefined : JSON.stringify(command.body),
+        });
 
-      if (response.ok) {
-        await deleteOutboxCommand(database, command.id);
-        continue;
+        if (response.ok) {
+          await deleteOutboxCommand(database, command.id);
+          continue;
+        }
+        if (response.status === 401 || response.status === 429 || response.status >= 500) {
+          throw new Error(`Synchronization deferred (${response.status})`);
+        }
+
+        const value = await response.json().catch(() => ({}));
+        command.status = 'rejected';
+        command.error = value.message || value.error || `Server rejected this change (${response.status})`;
+        await updateOutboxCommand(database, command);
       }
-      if (response.status === 401 || response.status === 429 || response.status >= 500) {
-        throw new Error(`Synchronization deferred (${response.status})`);
-      }
-
-      const value = await response.json().catch(() => ({}));
-      command.status = 'rejected';
-      command.error = value.message || value.error || `Server rejected this change (${response.status})`;
-      await updateOutboxCommand(database, command);
     }
   } finally {
     database.close();
@@ -338,9 +357,19 @@ async function flushOutboxInBackground() {
   }
 }
 
-// Deliver queued authoritative changes even when no application window is open.
+let outboxFlushPromise = null;
+function requestOutboxFlush() {
+  if (!outboxFlushPromise) {
+    outboxFlushPromise = flushOutboxInBackground().finally(() => {
+      outboxFlushPromise = null;
+    });
+  }
+  return outboxFlushPromise;
+}
+
+// Deliver queued changes even when no application window is open.
 self.addEventListener('sync', (event) => {
   if (event.tag === 'smart-todos-outbox') {
-    event.waitUntil(flushOutboxInBackground());
+    event.waitUntil(requestOutboxFlush());
   }
 });

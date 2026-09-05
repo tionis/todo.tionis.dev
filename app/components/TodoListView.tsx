@@ -50,6 +50,7 @@ import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
 import Modal from './Modal';
 import { useToast } from './Toast';
+import { SyncStatusBadge } from './OfflineIndicator';
 interface Todo {
   id: string;
   text: string;
@@ -565,8 +566,8 @@ function TodoListApp({
         </div>
 
         <div className="flex flex-col items-center space-y-6">
-          <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-w-2xl">
-            <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600 dark:text-gray-400 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-w-2xl">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <OnlineUsersTooltip currentUser={user} peers={peers} numUsers={numUsers} myPresence={myPresence}/>
               <span>Permission: {todoList.permission}</span>
               {todoList.archivedAt && <span className="text-amber-700 dark:text-amber-300">Archived</span>}
@@ -580,6 +581,7 @@ function TodoListApp({
               ))}
               {currentUserPinId && <span>Pinned</span>}
             </div>
+            <SyncStatusBadge listId={todoList.id} />
           </div>
 
           {todoList.archivedAt && (

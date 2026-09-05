@@ -365,6 +365,26 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  const listDocumentMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/document$/);
+  if (listDocumentMatch && request.method === "POST") {
+    if (!trustedMutation(request, response)) return;
+    const user = requestUser(request);
+    const listId = decodeURIComponent(listDocumentMatch[1]);
+    const row = listRowById(listId);
+    if (!accessFor(row, user).write) return fail(response, row ? 403 : 404, row ? "List is read-only" : "List not found");
+    const body = await readJson(request, Math.ceil(MAX_DOCUMENT_BYTES * 4 / 3) + 16_384);
+    if (typeof body.document !== "string" || !body.document) return fail(response, 400, "Document is required");
+    let document;
+    try {
+      document = await documents.merge(listId, decodeDocument(body.document));
+    } catch {
+      return fail(response, 400, "Invalid document update");
+    }
+    broadcastDocument(listId, document);
+    json(response, 200, { ok: true });
+    return;
+  }
+
   const pinMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/pin$/);
   if (pinMatch && request.method === "POST") {
     if (!trustedMutation(request, response)) return;

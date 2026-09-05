@@ -4,7 +4,6 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import * as Automerge from "@automerge/automerge/slim";
 import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
-import { commitPersistedDocument } from "../shared/content-commit.mjs";
 import { userDisplayName } from "../shared/identity.mjs";
 import { deliveryDisposition, orderedPendingCommands, summarizeOutbox } from "../shared/offline-outbox.mjs";
 import { rankDirectoryEntries } from "../backend/directory-search.mjs";
@@ -64,6 +63,8 @@ let outbox: QueuedRequest[] = [];
 let outboxLoaded = false;
 let outboxSyncing = false;
 let flushPromise: Promise<void> | null = null;
+let lastSyncedAt: number | null = null;
+let serviceWorkerFlushSupport: Promise<boolean> | null = null;
 let eventsSocket: WebSocket | undefined;
 const presenceByList = new Map<string, Record<string, any>>();
 const localPresenceByList = new Map<string, any>();
@@ -102,11 +103,12 @@ function openDocumentDatabase(): Promise<IDBDatabase> {
   });
 }
 async function readOutbox(): Promise<QueuedRequest[]> {
-  if (typeof indexedDB === "undefined" || !user) return [];
+  if (typeof indexedDB === "undefined") return [];
+  const userId = user?.id || "anonymous";
   const database = await openDocumentDatabase();
   return new Promise<QueuedRequest[]>((resolve, reject) => {
     const request = database.transaction("outbox", "readonly").objectStore("outbox").getAll();
-    request.onsuccess = () => resolve((request.result as QueuedRequest[]).filter((command) => command.userId === user?.id));
+    request.onsuccess = () => resolve((request.result as QueuedRequest[]).filter((command) => command.userId === userId));
     request.onerror = () => reject(request.error);
   }).finally(() => database.close());
 }
@@ -118,6 +120,48 @@ async function putOutboxCommand(command: QueuedRequest) {
     request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
   });
   database.close();
+}
+
+function createQueuedRequest(command: Omit<QueuedRequest, "id" | "userId" | "createdAt" | "status">): QueuedRequest {
+  if (outbox.length >= 1_000) throw new Error("Too many offline changes are waiting to synchronize");
+  return {
+    ...command,
+    id: crypto.randomUUID(),
+    userId: user?.id || "anonymous",
+    createdAt: new Date().toISOString(),
+    status: "pending",
+  };
+}
+
+function scheduleBackgroundSync() {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  void navigator.serviceWorker.ready.then((registration) =>
+    (registration as ServiceWorkerRegistration & { sync?: { register(tag: string): Promise<void> } }).sync?.register("smart-todos-outbox")
+  ).catch(() => {});
+}
+
+async function persistDocumentUpload(listId: string, document: Automerge.Doc<ListDocument>) {
+  if (typeof indexedDB === "undefined") throw new Error("Offline storage is not available");
+  const bytes = Automerge.save(document);
+  if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to store or synchronize safely");
+  const queued = createQueuedRequest({
+    listId,
+    method: "POST",
+    path: `/api/lists/${encodeURIComponent(listId)}/document`,
+    body: { document: bytesToBase64(bytes) },
+  });
+  const database = await openDocumentDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(["documents", "outbox"], "readwrite");
+    transaction.objectStore("documents").put(bytes, documentCacheKey(listId));
+    transaction.objectStore("outbox").put(queued);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  }).finally(() => database.close());
+  outbox.push(queued);
+  scheduleBackgroundSync();
+  return queued;
 }
 async function deleteOutboxCommand(id: string) {
   if (typeof indexedDB === "undefined") return;
@@ -307,65 +351,118 @@ function persistMetadataCaches() {
 }
 
 async function enqueueRequest(command: Omit<QueuedRequest, "id" | "userId" | "createdAt" | "status">) {
-  if (!user) throw new Error("Authentication required");
-  if (outbox.length >= 1_000) throw new Error("Too many offline changes are waiting to synchronize");
-  const queued: QueuedRequest = {
-    ...command,
-    id: crypto.randomUUID(),
-    userId: user.id,
-    createdAt: new Date().toISOString(),
-    status: "pending",
-  };
+  const queued = createQueuedRequest(command);
   outbox.push(queued);
   await putOutboxCommand(queued);
-  if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-    void navigator.serviceWorker.ready.then((registration) => (registration as any).sync?.register("smart-todos-outbox")).catch(() => {});
-  }
+  scheduleBackgroundSync();
   emit();
   return queued;
 }
 
+function workerSupportsOutboxFlush(worker: ServiceWorker) {
+  if (serviceWorkerFlushSupport) return serviceWorkerFlushSupport;
+  serviceWorkerFlushSupport = new Promise<boolean>((resolve) => {
+    const channel = new MessageChannel();
+    const finish = (supported: boolean) => {
+      window.clearTimeout(timeout);
+      channel.port1.close();
+      resolve(supported);
+    };
+    const timeout = window.setTimeout(() => finish(false), 750);
+    channel.port1.onmessage = (event) => finish(event.data?.outboxFlush === true);
+    worker.postMessage({ action: "outbox-capabilities" }, [channel.port2]);
+  });
+  return serviceWorkerFlushSupport;
+}
+
+async function askServiceWorkerToFlush(): Promise<boolean> {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator) || !navigator.serviceWorker.controller) return false;
+  const worker = navigator.serviceWorker.controller;
+  if (!await workerSupportsOutboxFlush(worker)) return false;
+  await new Promise<void>((resolve, reject) => {
+    const channel = new MessageChannel();
+    const timeout = window.setTimeout(() => reject(new Error("Background synchronization timed out")), 30_000);
+    channel.port1.onmessage = (event) => {
+      window.clearTimeout(timeout);
+      channel.port1.close();
+      if (event.data?.ok) resolve();
+      else reject(new Error(event.data?.error || "Background synchronization was deferred"));
+    };
+    worker.postMessage({ action: "flush-outbox" }, [channel.port2]);
+  });
+  return true;
+}
+
+async function flushOutboxInPage() {
+  let delivered = false;
+  let deferred = false;
+  do {
+    const commands = orderedPendingCommands(outbox) as QueuedRequest[];
+    if (commands.length === 0) break;
+    for (const command of commands) {
+      if (!outbox.some((candidate) => candidate.id === command.id && candidate.status === "pending")) continue;
+      try {
+        const result = await api(command.path, {
+          method: command.method,
+          body: command.body === undefined ? undefined : JSON.stringify(command.body),
+          headers: { "Idempotency-Key": command.id },
+        });
+        if (result.list) {
+          result.list._full = true;
+          const current = lists.get(result.list.id);
+          const hasLaterLocalChange = outbox.some((candidate) => candidate.id !== command.id && candidate.status === "pending" && candidate.listId === result.list.id);
+          if (current && hasLaterLocalChange) result.list = { ...result.list, ...current.metadata, _localOnly: false };
+          else if (current) result.list = { ...result.list, _localOnly: false, _deleted: false };
+          await registerList(result.list, result.document);
+        }
+        if (command.method === "DELETE" && command.listId && command.path === `/api/lists/${command.listId}`) {
+          const deleted = lists.get(command.listId);
+          if (deleted?.metadata.slug && typeof localStorage !== "undefined") localStorage.removeItem(`smart-todos:${listCacheKey(deleted.metadata.slug)}`);
+          deleted?.socket?.close(1000, "List deleted");
+          lists.delete(command.listId);
+          dashboardIds = dashboardIds.filter((id) => id !== command.listId);
+          await deleteLocalDocument(command.listId);
+        }
+        outbox = outbox.filter((candidate) => candidate.id !== command.id);
+        await deleteOutboxCommand(command.id);
+        delivered = true;
+      } catch (error) {
+        if (deliveryDisposition(error) === "retry") {
+          deferred = true;
+          break;
+        }
+        command.status = "rejected";
+        command.error = error instanceof Error ? error.message : "Server rejected this change";
+        await putOutboxCommand(command);
+      }
+      emit();
+    }
+  } while (!deferred && orderedPendingCommands(outbox).length > 0);
+  return delivered;
+}
+
 async function flushOutbox() {
   if (flushPromise) return flushPromise;
-  if (!user || !outboxLoaded || (typeof navigator !== "undefined" && !navigator.onLine)) return;
+  if (!outboxLoaded || (typeof navigator !== "undefined" && !navigator.onLine)) return;
   flushPromise = (async () => {
     outboxSyncing = true; emit();
     let delivered = false;
     try {
-      for (const command of orderedPendingCommands(outbox) as QueuedRequest[]) {
-        try {
-          const result = await api(command.path, {
-            method: command.method,
-            body: command.body === undefined ? undefined : JSON.stringify(command.body),
-            headers: { "Idempotency-Key": command.id },
-          });
-          if (result.list) {
-            result.list._full = true;
-            const current = lists.get(result.list.id);
-            const hasLaterLocalChange = outbox.some((candidate) => candidate.id !== command.id && candidate.status === "pending" && candidate.listId === result.list.id);
-            if (current && hasLaterLocalChange) result.list = { ...result.list, ...current.metadata, _localOnly: false };
-            else if (current) result.list = { ...result.list, _localOnly: false, _deleted: false };
-            await registerList(result.list, result.document);
-          }
-          if (command.method === "DELETE" && command.listId && command.path === `/api/lists/${command.listId}`) {
-            const deleted = lists.get(command.listId);
-            if (deleted?.metadata.slug && typeof localStorage !== "undefined") localStorage.removeItem(`smart-todos:${listCacheKey(deleted.metadata.slug)}`);
-            deleted?.socket?.close(1000, "List deleted");
-            lists.delete(command.listId);
-            dashboardIds = dashboardIds.filter((id) => id !== command.listId);
-            await deleteLocalDocument(command.listId);
-          }
-          outbox = outbox.filter((candidate) => candidate.id !== command.id);
-          await deleteOutboxCommand(command.id);
-          delivered = true;
-        } catch (error) {
-          if (deliveryDisposition(error) === "retry") break;
-          command.status = "rejected";
-          command.error = error instanceof Error ? error.message : "Server rejected this change";
-          await putOutboxCommand(command);
+      try {
+        const pendingBefore = outbox.filter((command) => command.status === "pending").length;
+        const handledByWorker = await askServiceWorkerToFlush();
+        if (handledByWorker) {
+          outbox = await readOutbox();
+          delivered = outbox.filter((command) => command.status === "pending").length < pendingBefore;
+        } else {
+          delivered = await flushOutboxInPage();
         }
-        emit();
+      } catch {
+        // The durable commands and Background Sync registration remain in
+        // place. Foreground/focus retry paths will try again later.
+        outbox = await readOutbox();
       }
+      if (delivered && outbox.every((command) => command.status !== "pending")) lastSyncedAt = Date.now();
       if (delivered && typeof navigator !== "undefined" && navigator.onLine) {
         await loadDashboard(true);
       }
@@ -388,7 +485,7 @@ async function loadUserOutbox() {
 }
 
 async function resumeOutboxSync() {
-  if (!user || !outboxLoaded) return;
+  if (!outboxLoaded) return;
   if (flushPromise) await flushPromise;
   outbox = await readOutbox();
   emit();
@@ -417,10 +514,8 @@ async function loadAuth() {
       authError = error as Error;
     }
   }
-  if (user) {
-    await loadUserOutbox();
-    connectEvents();
-  }
+  await loadUserOutbox();
+  if (user) connectEvents();
   authLoading = false;
   emit();
 }
@@ -661,6 +756,7 @@ async function transact(input: any) {
     listAssociations,
     (operation: Operation) => entityListId(operation),
   ) as Map<string, Operation[]>;
+  const queuedContent: QueuedRequest[] = [];
   await runTransactionPhases([
     async () => {
       for (const [listId, content] of contentByList) {
@@ -669,15 +765,16 @@ async function transact(input: any) {
         const nextDocument = applyContentOperations(state.document || emptyDocument(), content);
         const nextBytes = Automerge.save(nextDocument);
         if (nextBytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
-        await commitPersistedDocument({
-          document: nextDocument,
-          persist: (document: Automerge.Doc<ListDocument>) => writeLocalDocument(listId, document),
-          commit: (document: Automerge.Doc<ListDocument>) => { state.document = document; },
-          publish: state.socket?.readyState === WebSocket.OPEN && state.access === "write"
-            ? () => state.socket!.send(nextBytes)
-            : undefined,
-          recoverPublish: () => state.socket?.close(1011, "Sync retry required"),
-        });
+        const queued = await persistDocumentUpload(listId, nextDocument);
+        queuedContent.push(queued);
+        state.document = nextDocument;
+        if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") {
+          try {
+            state.socket.send(nextBytes);
+          } catch {
+            state.socket.close(1011, "Sync retry required");
+          }
+        }
       }
     },
   ]);
@@ -687,7 +784,8 @@ async function transact(input: any) {
   for (const request of requests) queued.push(await enqueueRequest(request));
   emit();
   await flushOutbox();
-  const rejected = queued.find((command) => command.status === "rejected");
+  const attemptedIds = new Set([...queuedContent, ...queued].map((command) => command.id));
+  const rejected = outbox.find((command) => attemptedIds.has(command.id) && command.status === "rejected");
   if (rejected) throw new Error(rejected.error);
 }
 
@@ -697,17 +795,22 @@ export const db = {
   tx, transact, useQuery,
   room(type: string, id: string) { return { type, id }; },
   useAuth() { useSyncExternalStore(subscribe, snapshot, () => 0); return { isLoading: authLoading, user, error: authError }; },
-  useSyncStatus() {
+  useSyncStatus(listId?: string) {
     useSyncExternalStore(subscribe, snapshot, () => 0);
-    return { ...summarizeOutbox(outbox, outboxSyncing), errors: outbox.filter((command) => command.status === "rejected").map((command) => command.error || "Server rejected a queued change") };
+    const commands = listId ? outbox.filter((command) => command.listId === listId) : outbox;
+    return {
+      ...summarizeOutbox(commands, outboxSyncing),
+      ready: outboxLoaded,
+      lastSyncedAt,
+      errors: commands.filter((command) => command.status === "rejected").map((command) => command.error || "Server rejected a queued change"),
+    };
   },
   async syncNow() { await resumeOutboxSync(); },
   async refreshAfterBackgroundSync() {
-    if (!user) return;
     outbox = await readOutbox();
     outboxLoaded = true;
     emit();
-    await loadDashboard(true);
+    if (user) await loadDashboard(true);
   },
   async retryRejected() {
     for (const command of outbox.filter((candidate) => candidate.status === "rejected")) {
@@ -742,6 +845,7 @@ export const db = {
       user = null;
       cacheMetadata("auth:user", null);
       cacheMetadata("auth:last-user", null);
+      await loadUserOutbox();
       emit();
     },
   },
