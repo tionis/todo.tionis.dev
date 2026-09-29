@@ -72,6 +72,22 @@ test('privately hands POSTed shared text to the authenticated quick-add flow', a
   await expect(page).toHaveURL('/');
 });
 
+test('offers a shared list of lines as separate items', async ({ context, page }) => {
+  await context.addCookies([{ name: 'pwa-test-auth', value: '1', url: 'http://127.0.0.1:4173' }]);
+  const text = '- 200 g Spaghetti\n- 2 Eier\n- 40 g Parmesan';
+  await page.goto(`/?action=share&text=${encodeURIComponent(text)}`);
+  await expect(page.getByRole('heading', { name: 'Add shared items' })).toBeVisible();
+  const items = page.getByRole('group', { name: 'Items' }).getByRole('checkbox');
+  await expect(items).toHaveCount(3);
+  await expect(page.getByText('200 g Spaghetti', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add 3 items' })).toBeVisible();
+  await items.nth(1).uncheck();
+  await expect(page.getByRole('button', { name: 'Add 2 items' })).toBeVisible();
+  await page.getByLabel('Add each line as a separate item').uncheck();
+  await expect(page.getByRole('heading', { name: 'Add shared todo' })).toBeVisible();
+  await expect(page.locator('#shared-todo-text')).toHaveValue(text);
+});
+
 test('preserves queued changes across an offline browser restart', async ({ context, page }) => {
   await context.addCookies([{ name: 'pwa-test-auth', value: '1', url: 'http://127.0.0.1:4173' }]);
   await page.goto('/');

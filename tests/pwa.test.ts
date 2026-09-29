@@ -6,6 +6,8 @@ import {
   isIosDevice,
   isStoredShareFresh,
   SHARE_MAX_AGE_MS,
+  looksLikeItemList,
+  splitSharedItems,
   storageNotice,
 } from "../lib/pwa";
 
@@ -61,4 +63,23 @@ test("reports persistence denial and escalating storage pressure", () => {
   assert.equal(storageNotice(false, { usage: 10, quota: 100 })?.level, "info");
   assert.equal(storageNotice(true, { usage: 80, quota: 100 })?.level, "warning");
   assert.equal(storageNotice(true, { usage: 95, quota: 100 })?.level, "critical");
+});
+
+test("splits shared text into items without list markers", () => {
+  assert.deepEqual(
+    splitSharedItems("- 200 g Spaghetti\n* 2 Eier\n• 40 g Parmesan\n1. Pfeffer\n2) Salz\n[ ] Guanciale\n[x] Olivenöl\n\n   \n"),
+    ["200 g Spaghetti", "2 Eier", "40 g Parmesan", "Pfeffer", "Salz", "Guanciale", "Olivenöl"],
+  );
+});
+
+test("keeps a single line as one item and handles Windows line endings", () => {
+  assert.deepEqual(splitSharedItems("Buy lemons"), ["Buy lemons"]);
+  assert.deepEqual(splitSharedItems("a\r\nb"), ["a", "b"]);
+  assert.deepEqual(splitSharedItems("-5 °C Tiefkühlung prüfen"), ["-5 °C Tiefkühlung prüfen"]);
+});
+
+test("treats several plain lines as a list, but not a title with its link", () => {
+  assert.equal(looksLikeItemList(["200 g Spaghetti", "2 Eier"]), true);
+  assert.equal(looksLikeItemList(["Buy lemons"]), false);
+  assert.equal(looksLikeItemList(["Recipe", "Buy lemons", "https://example.com"]), false);
 });

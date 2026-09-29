@@ -32,8 +32,6 @@ import {
   normalizeItemText,
   parseClassifierKeywords,
   shouldAutoSortClassification,
-  shouldSuggestClassification,
-  type ClassificationResult,
   type ClassifierAggressiveness,
 } from "../../lib/classification";
 import { executeTransaction, canUserWrite, canUserView, transferListOwnership } from "../../lib/transactions";
@@ -43,7 +41,7 @@ import { formatListTags, parseListTags, tagInputToList } from "../../lib/tags";
 import {
   createClassificationTransaction,
   createTodoDeleteTransactions,
-  createTodoTransaction,
+  createTodoTransactions,
 } from "../../lib/todoTransactions";
 import { userDisplayName } from "../../shared/identity.mjs";
 import LoadingSpinner from './LoadingSpinner';
@@ -80,46 +78,6 @@ interface TodoList {
   pins: any[];
   todoClassifications: any[];
   [key: string]: any;
-}
-
-interface CreateTodoResult {
-  transactions: any[];
-  classification: ClassificationResult | null;
-  suggestedClassification: ClassificationResult | null;
-}
-
-function createTodoTransactions(
-  todoList: TodoList,
-  text: string,
-  explicitSublistId?: string,
-  explicitSource = "explicit",
-): CreateTodoResult {
-  const maxOrder = Math.max(0, ...todoList.todos.map((todo) => todo.order || 0));
-  const classification = explicitSublistId || !todoList.autoSortTodos
-    ? null
-    : classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications, {
-      aggressiveness: todoList.classifierAggressiveness,
-      resetAt: todoList.classifierResetAt,
-    });
-  const shouldAutoSort = shouldAutoSortClassification(classification, {
-    aggressiveness: todoList.classifierAggressiveness,
-    resetAt: todoList.classifierResetAt,
-  });
-  const suggestedClassification = !explicitSublistId && classification && !shouldAutoSort && shouldSuggestClassification(classification, {
-    aggressiveness: todoList.classifierAggressiveness,
-    resetAt: todoList.classifierResetAt,
-  })
-    ? classification
-    : null;
-  const sublistId = explicitSublistId || (shouldAutoSort ? classification?.sublistId : undefined);
-  const source = explicitSublistId ? explicitSource : "auto";
-
-  const transactions: any[] = [createTodoTransaction(todoList.id, text, maxOrder + 1, sublistId)];
-  if (sublistId && source !== "auto") {
-    transactions.push(createClassificationTransaction(todoList.id, sublistId, text, source));
-  }
-
-  return { transactions, classification: shouldAutoSort ? classification : null, suggestedClassification };
 }
 
 interface TodoListViewProps {

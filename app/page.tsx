@@ -8,8 +8,8 @@ import { buildCreateListFromTemplateTransactions, type TemplateCopyOptions } fro
 import { parseListTags, tagInputToList } from "../lib/tags";
 import { buildListImportTransactions, MAX_IMPORT_FILE_BYTES } from "../lib/listImport";
 import { userDisplayName } from "../shared/identity.mjs";
-import { consumeLaunchAction, consumeStoredShare } from "../lib/pwa";
-import { createTodoTransaction } from "../lib/todoTransactions";
+import { consumeLaunchAction, consumeStoredShare, looksLikeItemList, splitSharedItems } from "../lib/pwa";
+import { createTodoTransactions } from "../lib/todoTransactions";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
@@ -189,13 +189,17 @@ function AuthenticatedApp({ user }: { user: User }) {
     : selectedDashboardLists;
   const writableLists = dashboardLists.filter((list) => canUserWrite(user, list, list.permission));
 
-  const addSharedTodo = async (listId: string, text: string) => {
+  const addSharedTodo = async (listId: string, items: string[]) => {
     const list = writableLists.find((candidate) => candidate.id === listId);
-    if (!list) return false;
+    if (!list || items.length === 0) return false;
     const maxOrder = Math.max(0, ...list.todos.map((todo: any) => todo.order || 0));
+    // Each item goes through the list's classifier, like todos added in the list itself.
+    const transactions = items.flatMap((item, index) =>
+      createTodoTransactions(list, item, undefined, "explicit", maxOrder + 1 + index).transactions,
+    );
     const success = await executeTransaction(
-      createTodoTransaction(list.id, text, maxOrder + 1),
-      "Failed to add shared todo",
+      transactions,
+      items.length === 1 ? "Failed to add shared todo" : "Failed to add shared todos",
     );
     if (success) {
       setSharedTodoText(null);
@@ -799,24 +803,57 @@ function ShareTodoModal({
 }: {
   initialText: string;
   lists: any[];
-  onAdd: (listId: string, text: string) => Promise<boolean>;
+  onAdd: (listId: string, items: string[]) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [text, setText] = useState(initialText);
   const [listId, setListId] = useState(lists[0]?.id || "");
   const [saving, setSaving] = useState(false);
+  // A list of lines (e.g. a recipe's ingredients) is offered as separate items; ordinary
+  // shares like a title with its link stay one todo. Either can be switched.
+  const lines = splitSharedItems(initialText);
+  const [asItems, setAsItems] = useState(looksLikeItemList(lines));
+  const [selected, setSelected] = useState<boolean[]>(() => lines.map(() => true));
+  const chosen = lines.filter((_, index) => selected[index]);
+  const canSubmit = !!listId && !saving && (asItems ? chosen.length > 0 : !!text.trim());
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!listId || !text.trim() || saving) return;
+    if (!canSubmit) return;
     setSaving(true);
-    const success = await onAdd(listId, text.trim());
+    const success = await onAdd(listId, asItems ? chosen : [text.trim()]);
     if (!success) setSaving(false);
   };
 
   return (
-    <Modal onClose={onClose} title="Add shared todo" maxWidth="md">
+    <Modal onClose={onClose} title={asItems ? "Add shared items" : "Add shared todo"} maxWidth="md">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {lines.length > 1 && (
+          <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input type="checkbox" checked={asItems} onChange={(event) => setAsItems(event.target.checked)} />
+            Add each line as a separate item
+          </label>
+        )}
+        {asItems ? (
+          <fieldset>
+            <legend className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Items</legend>
+            <ul className="max-h-72 space-y-1 overflow-y-auto rounded-md border border-gray-300 p-2 dark:border-gray-600">
+              {lines.map((line, index) => (
+                <li key={index}>
+                  <label className="flex items-start gap-2 text-gray-900 dark:text-white">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selected[index]}
+                      onChange={(event) => setSelected((current) => current.map((value, i) => (i === index ? event.target.checked : value)))}
+                    />
+                    <span>{line}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+        ) : (
         <div>
           <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="shared-todo-text">Todo</label>
           <textarea
@@ -829,6 +866,7 @@ function ShareTodoModal({
             className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           />
         </div>
+        )}
         <div>
           <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="shared-todo-list">List</label>
           <select
@@ -843,8 +881,8 @@ function ShareTodoModal({
           </select>
         </div>
         <div className="flex gap-3">
-          <button type="submit" disabled={!listId || !text.trim() || saving} className="flex-1 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50">
-            {saving ? "Adding…" : "Add Todo"}
+          <button type="submit" disabled={!canSubmit} className="flex-1 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50">
+            {saving ? "Adding…" : asItems ? `Add ${chosen.length} ${chosen.length === 1 ? "item" : "items"}` : "Add Todo"}
           </button>
           <button type="button" onClick={onClose} className="flex-1 rounded bg-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-400 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
         </div>

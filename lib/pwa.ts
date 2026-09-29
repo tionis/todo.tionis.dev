@@ -11,6 +11,26 @@ export function composeSharedText(title?: string | null, text?: string | null, s
   return parts.join("\n").slice(0, 20_000) || undefined;
 }
 
+/**
+ * Split shared text into separate items, one per line, without list markers
+ * ("- ", "* ", "• ", "1. ", "[ ] "). Used to offer adding e.g. a recipe's ingredients
+ * as individual todos.
+ */
+export function splitSharedItems(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*•]\s+|\d+[.)]\s+|\[[ xX]?\]\s+)?/, "").trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Whether shared lines look like a list of items (e.g. ingredients) rather than an
+ * ordinary share such as a page title with its link, which stays one todo.
+ */
+export function looksLikeItemList(lines: string[]): boolean {
+  return lines.length > 1 && !lines.some((line) => /^https?:\/\//i.test(line));
+}
+
 export function isStoredShareFresh(createdAt: unknown, now = Date.now()): boolean {
   return typeof createdAt === "number" && Number.isFinite(createdAt) && createdAt >= now - SHARE_MAX_AGE_MS && createdAt <= now;
 }
