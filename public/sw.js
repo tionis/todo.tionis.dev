@@ -105,6 +105,12 @@ self.addEventListener('fetch', (event) => {
   const isSameOrigin = url.origin === self.location.origin;
 
   if (isSameOrigin && request.method === 'POST' && url.pathname === '/share-target') {
+    // Shares come from the OS share sheet ("none") or this app; a web page on another
+    // site must not be able to plant text in the user's quick-add flow.
+    if (request.headers.get('Sec-Fetch-Site') === 'cross-site') {
+      event.respondWith(new Response('Cross-site shares are not accepted', { status: 403 }));
+      return;
+    }
     event.respondWith(handleShareTargetRequest(request));
     return;
   }

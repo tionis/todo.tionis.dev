@@ -293,3 +293,35 @@ test("background sync drains document edits queued during an active flush withou
     await fs.rm(value.root, { recursive: true, force: true });
   }
 });
+
+test("the share target rejects cross-site form posts", async () => {
+  const { renderServiceWorker } = await import("../scripts/generate-service-worker.mjs");
+  const source = renderServiceWorker(await fs.readFile(path.resolve("public/sw.js"), "utf8"), { revision: "test" });
+  const handlers = new Map();
+  const self = {
+    location: { origin: "https://todo.example" },
+    clients: { claim: async () => {}, matchAll: async () => [] },
+    addEventListener: (name, handler) => handlers.set(name, handler),
+    skipWaiting: () => {},
+  };
+  vm.runInNewContext(source, { self, caches: {}, fetch: async () => new Response(""), indexedDB: {}, URL, Response, Headers, JSON, Promise, TypeError, console });
+
+  const dispatch = (site) => {
+    let response;
+    handlers.get("fetch")({
+      request: {
+        method: "POST", url: "https://todo.example/share-target",
+        headers: new Headers(site ? { "Sec-Fetch-Site": site } : {}),
+        formData: async () => new Map(),
+      },
+      respondWith: (value) => { response = value; },
+    });
+    return response;
+  };
+  assert.equal((await dispatch("cross-site")).status, 403);
+  // Same-origin, the OS share sheet ("none") and older browsers without the header are handed to the share handler.
+  for (const site of ["same-origin", "none", undefined]) {
+    const outcome = await Promise.resolve(dispatch(site));
+    assert.notEqual(outcome.status, 403);
+  }
+});
