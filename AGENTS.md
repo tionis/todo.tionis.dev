@@ -1,177 +1,118 @@
 # Smart Todos - Agent Notes
 
-This is a collaborative grocery-oriented todo list app built with Next.js, React,
-InstantDB, and Tailwind. It is configured as a static export and uses InstantDB
-for auth, realtime sync, permissions, and offline-capable client data.
+A local-first collaborative grocery todo app: a Next.js static export in the browser and a
+small Node backend that stores, merges and broadcasts Automerge documents. README.md
+describes architecture, offline behavior, OIDC/SCIM setup and deployment in detail; read
+it before larger changes.
 
-## Current Stack
+## Stack
 
-- Next.js `16.2.6`, React `19`, TypeScript
-- Tailwind CSS `4`
-- InstantDB React/Admin SDKs
-- ESLint flat config via `eslint.config.mjs`
-- Static export in `next.config.ts` with `output: "export"` and `distDir: "out"`
-- PWA assets and service worker under `public/`
+- Next.js 16 (static export, `output: "export"`, `distDir: "out"`), React 19, TypeScript,
+  Tailwind CSS 4
+- `@automerge/automerge` 3 for list content, in the browser (IndexedDB) and the backend
+- Backend: plain Node (`backend/server.mjs`) with `ws` for WebSockets, `better-sqlite3`
+  for server-authoritative metadata, `openid-client` for OIDC login
+- ESLint flat config (`eslint.config.mjs`), `node:test` + `tsx` for tests, Playwright for
+  PWA end-to-end tests
 
-Instant app id: `3629fe62-7453-4610-9a5a-1143a87bcce1`
+## Commands
 
-## Local Commands
+- `npm run dev` - frontend dev server (http://localhost:3000)
+- `npm run dev:backend` - backend with `.env` (http://localhost:3030); see
+  `backend/.env.example` for the variables (OIDC, `DATA_DIR`, `APP_ORIGIN`, …)
+- `npm run build` - static export plus the generated service worker
+  (`scripts/generate-service-worker.mjs`)
+- `npm start` - production: one process serves `out/`, `/api/*` and the WebSockets
+- `npm test` - backend integration tests (`backend/*.test.mjs`) and unit tests
+  (`tests/*.test.ts`); `npm run test:unit` runs only the latter
+- `npm run test:pwa:e2e` - Playwright matrix against a mocked backend
+  (`tests/pwa-e2e-server.mjs`)
+- `npm run lint`
 
-Use the repo scripts unless there is a reason not to:
+On Eric's machine npm may be managed by mise; if plain `npm` is not found, use
+`/home/eric/.local/share/mise/installs/node/20/bin/npm` (and `npx` next to it).
 
-- `npm run dev` - start the Turbopack dev server
-- `npm run build` - production/static export build
-- `npm run start` - start a production server
-- `npm run lint` - run `eslint .`
-- `npm run generate-assets` - regenerate PWA icons and screenshots
-- `npm run debug -- ...` or `node debug-cli.js ...` - InstantDB debug CLI
+## Architecture
 
-On Eric's machine, npm may be managed by mise. If plain `npm` is not found, use:
-
-```bash
-/home/eric/.local/share/mise/installs/node/20/bin/npm
-/home/eric/.local/share/mise/installs/node/20/bin/npx
-```
-
-`npm run lint` currently passes with existing warnings. Do not treat those
-warnings as newly introduced failures unless your change adds more.
-
-## Key Files
-
-- `app/page.tsx` - dashboard/auth/list creation entrypoint
-- `app/components/HashRouter.tsx` - hash-based routing wrapper
-- `app/components/TodoListView.tsx` - main list UI, todo lifecycle, settings, sharing, classifier UI
-- `app/components/InvitationsView.tsx` - invitation management
-- `lib/db.ts` - InstantDB initialization and typed schema export
-- `lib/classification.ts` - local todo classifier logic
-- `lib/transactions.ts` - shared transaction/permission helpers
-- `instant.schema.ts` - InstantDB schema
-- `instant.perms.ts` - InstantDB permissions
-- `instantdb.txt` - local InstantDB API reference
-- `debug-cli.js` and `debug-examples.sh` - InstantDB admin/debug tooling
-- `next.config.ts` - static export config
-
-There is no `app/[slug]/page.tsx`; list navigation is handled inside the app
-using the hash router and `TodoListView`.
-
-## InstantDB Model
-
-Main entities:
-
-- `todoLists`: list metadata, permissions, settings, `autoSortTodos`,
-  `classifierAggressiveness`
-- `todos`: item text, done state, ordering, timestamps
-- `sublists`: categories/departments, order, `classifierKeywords`
-- `todoClassifications`: classifier training samples and correction history
-- `listMembers`: list membership
-- `invitations`: email invitations
-- `pinnedLists`: user pins for public lists without membership
-- `$users`: Instant auth users
-
-Important links:
-
-- lists have `owner`, `members`, `todos`, `sublists`, `invitations`, `pins`,
-  and `todoClassifications`
-- todos belong to a list and may link to one sublist
-- classifier samples belong to a list and may link to one sublist
-- pins link one user to one public list
-
-When adding fields used in `where` or `order`, add indexes in
-`instant.schema.ts`. Keep `instant.perms.ts` in sync with any new entity or
-relationship.
-
-## InstantDB Workflow
-
-Schema changes are local until pushed:
-
-```bash
-npx --yes instant-cli push schema --yes --app 3629fe62-7453-4610-9a5a-1143a87bcce1
-npx --yes instant-cli push perms --yes --app 3629fe62-7453-4610-9a5a-1143a87bcce1
-```
-
-Use the explicit mise `npx` path if needed. Schema pushes may require network
-approval in sandboxed environments.
-
-Follow InstantDB permission syntax carefully:
-
-- use `data.ref("path.to.attr")` for linked attributes
-- `data.ref(...)` returns a list
-- the path must end at an attribute, not an entity
-- do not use unsupported filters like `$exists`, `$nin`, or `$regex`
+- Each list is one Automerge document: `schemaVersion`, `todos`, `categories`,
+  `classifierHistory` (maps keyed by id). The backend validates every document against
+  exactly these fields (`backend/document-validation.mjs`); new fields need changes there.
+- All backend Automerge parsing, validation, merging and classifier resets run in one
+  worker (`backend/document-worker.mjs`, `backend/document-processor.mjs`) with a timeout;
+  the HTTP process only handles serialized bytes. The worker exits after 30 s idle.
+- Server-authoritative data lives in SQLite (`backend/database.mjs`): users, sessions,
+  list metadata and permissions, members, group grants, pins, SCIM directory data. It is
+  never part of the CRDT.
+- `lib/db.ts` is the client data layer. It keeps an InstantDB-style API (`db.tx.…`,
+  `db.transact`, `db.useQuery`) from the app's previous backend, so the UI code still reads
+  that way. Entity names map onto the document: `todos` → `todos`, `sublists` →
+  `categories`, `todoClassifications` → `classifierHistory`; `todoLists`, `listMembers`
+  and `pinnedLists` go to the REST API. Transactions are split and routed in
+  `shared/transaction-routing.mjs`.
+- Sync: the browser opens a WebSocket to `/sync?listId=…` per list for low-latency
+  collaboration; `/events` pushes metadata changes. Both only accept the app's own origin
+  (`APP_ORIGIN`) and authenticate with the `smart_todos_session` cookie (HttpOnly,
+  SameSite=Lax). Durability comes from HTTP: each changed document is also committed with
+  an upload command (`/api/lists/:id/document`) that the server acknowledges.
+- Offline: documents and metadata are cached in IndexedDB per account; document uploads and
+  server-authoritative changes queue in a durable outbox (`shared/offline-outbox.mjs`) and
+  replay in order on reconnect; the service worker can finish uploads after the tab
+  closes and retries via Background Sync where supported.
+- PWA: the service worker precaches the app shell (including the Automerge WASM), and the
+  app is a share target (`POST /share-target`, also `/?action=share&text=…`). Shared text
+  that looks like a list (several lines, no link) is offered as separate items
+  (`lib/pwa.ts`: `splitSharedItems`, `looksLikeItemList`); rezepte.wendland.dev uses this
+  to send a recipe's ingredients.
 
 ## Permissions
 
-List permissions are string values:
+List permission is one of `public-write`, `public-read`, `private-write`, `private-read`,
+`owner`; `backend/access.mjs` computes read/write/owner from it plus ownership, direct
+membership and group grants. The backend checks access on the WebSocket upgrade and again
+before accepting document data. In the UI, use `canUserWrite` / `canUserView` from
+`lib/transactions.ts` before enabling writes.
 
-- `public-write`
-- `public-read`
-- `private-write`
-- `private-read`
-- `owner`
+## Key files
 
-Todos, sublists, classifier samples, members, invitations, and pins inherit or
-derive access from their parent list. Public list pins are private to the pinning
-user and do not make the user a list member.
+- `app/page.tsx` - dashboard, auth state, list creation/import, share dialog
+- `app/components/TodoListView.tsx` - list UI, todo lifecycle, settings, sharing, classifier
+  UI (large; extract only when it clearly reduces risk)
+- `app/components/HashRouter.tsx` - hash-based routing (there is no `app/[slug]/`)
+- `lib/db.ts` - client data layer (see above)
+- `lib/todoTransactions.ts` - todo creation incl. classification (`createTodoTransactions`),
+  deletion, classifier samples
+- `lib/classification.ts` - the local classifier
+- `lib/listImport.ts`, `lib/listExport.ts` - JSON list export/import (format
+  `smart-todos-list`, version 1)
+- `backend/server.mjs` - HTTP API, auth, WebSockets; `backend/documents.mjs` - document
+  storage; `backend/document-validation.mjs` - document schema; `backend/scim.mjs` -
+  SCIM 2.0 provisioning
 
-Before enabling writes in UI code, use existing permission helpers such as
-`canUserWrite` and match the rules in `instant.perms.ts`.
+## Classifier
 
-## Classifier Behavior
-
-The classifier is intentionally local and deterministic. It does not call a
-remote model.
-
-Core rules live in `lib/classification.ts`:
+The classifier is local and deterministic; it never calls a remote model. Rules live in
+`lib/classification.ts`:
 
 - training prefers the latest checked occurrence per normalized item text
 - checking a categorized todo records a `checked` sample
-- manually moving an item records a positive `manual-move` sample for the new
-  category and a `negative` sample for the old category
-- explicit creation/quick-add/backfill samples remain fallback signals
-- auto-generated samples are not used as positive training data
-- category keyword hints come from `sublists.classifierKeywords`
-- list-level aggressiveness comes from `todoLists.classifierAggressiveness`
-  (`conservative`, `normal`, `aggressive`)
-- fuzzy matching includes token normalization, simple stemming, edit distance,
-  adjacent transposition handling, bigram similarity, containment, and compound
-  expansion using known vocabulary
+- moving an item by hand records a positive `manual-move` sample for the new category and
+  a `negative` one for the old category
+- explicit creation/quick-add/backfill samples are fallback signals; auto-generated
+  samples are not used as positive training data
+- category keyword hints come from the category's `classifierKeywords`
+- aggressiveness (`conservative`, `normal`, `aggressive`) and a reset time come from the
+  list settings
+- fuzzy matching: token normalization, simple stemming, edit distance, transpositions,
+  bigram similarity, containment and compound expansion from known vocabulary
 
-The UI exposes classifier controls in settings and detailed diagnostics in a
-separate classifier modal. Medium-confidence matches should be suggestions;
-only high-confidence matches should auto-sort.
+Medium-confidence matches are suggestions; only high-confidence matches auto-sort.
 
-## Debug CLI
+## Development notes
 
-The debug CLI loads InstantDB admin credentials from `.env`:
-
-```bash
-INSTANT_APP_ID=3629fe62-7453-4610-9a5a-1143a87bcce1
-INSTANT_APP_ADMIN_TOKEN=...
-```
-
-Common examples:
-
-```bash
-node debug-cli.js query --guest '{todoLists: {}}'
-node debug-cli.js query '{todoLists: {owner: {}, todos: {sublist: {}}, sublists: {}}}'
-node debug-cli.js query --impersonate-email "user@example.com" '{todoLists: {}}'
-node debug-cli.js transact --dry-run update todoLists "list-id" '{permission: "public-read"}'
-```
-
-Use it for permission checks, data inspection, and admin-token debugging. See
-`debug-examples.sh` for more examples.
-
-## Development Notes
-
-- Handle `db.useAuth()` and `db.useQuery()` loading/error states.
-- InstantDB transactions are optimistic; avoid adding manual polling.
-- Do not use undocumented InstantDB APIs; consult `instantdb.txt` or official
-  docs when unsure.
-- Keep edits scoped. This app has a large `TodoListView.tsx`; prefer extracting
-  only when it clearly reduces risk or complexity.
-- Preserve static-export compatibility. Avoid server-only Next features unless
-  the deployment model changes.
+- Keep static-export compatibility; no server-only Next features in the frontend.
+- Changes to the list document need matching validation in `backend/document-validation.mjs` and,
+  if they affect import/export, `lib/listImport.ts` / `lib/listExport.ts`.
+- After changes run `npm test`, `npm run lint` and `npm run build`; for PWA or sharing
+  changes also `npm run test:pwa:e2e`.
+- `npm run lint` passes with existing warnings; don't add new ones.
 - PWA asset scripts require ImageMagick `convert`.
-- After dependency or framework changes, run `npm run build` and `npm run lint`.
-- After schema/permission changes, push the relevant InstantDB files and note
-  that the remote schema/perms were updated.
