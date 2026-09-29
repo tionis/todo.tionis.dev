@@ -7,7 +7,7 @@ A local-first collaborative grocery todo app built with Next.js, React, Automerg
 - The Next.js frontend remains a static export served by the backend process in production.
 - Each list is an Automerge document containing categories, todos, and classifier history.
 - Browser documents are stored in IndexedDB and changes remain available offline.
-- The backend persists canonical Automerge files and broadcasts merged documents over WebSockets.
+- The backend persists canonical Automerge files. A connection first receives the full document; afterwards the server broadcasts only the changes each merge added (with its heads), and clients upload only the changes since the server's heads. The HTTP upload endpoint still accepts full documents, and the on-disk format is unchanged.
 - SQLite stores server-authoritative users, directory groups, sessions, list metadata, permissions, members, and pins.
 - OIDC Authorization Code Flow with PKCE is handled by the backend. Login transactions are bound to the initiating browser, and browser sessions use opaque, hashed, HttpOnly cookies.
 - An optional SCIM 2.0 service lets an identity provider provision users, friendly names, usernames, groups, activation state, and group membership before users log in.
@@ -18,9 +18,9 @@ Read-only clients receive canonical documents but cannot upload changes. Write a
 
 After a successful online sign-in, the dashboard eagerly downloads every owned, shared, group-granted, or pinned list, including its complete Automerge document. The application shell, list metadata, sharing directory, and Automerge documents are cached locally and scoped to the signed-in account.
 
-Todo and category edits merge through Automerge. Each updated Automerge document is committed atomically with an acknowledgement-backed upload command in IndexedDB; the WebSocket remains the low-latency collaboration path, while the HTTP outbox proves the server received the edit. Server-authoritative changes—including creating/importing, renaming, configuring, archiving or deleting lists; pins; direct members; group grants; ownership transfers; and classifier resets—use the same durable outbox. Commands replay in order when connectivity returns. Dashboard and per-list status badges distinguish confirmed, locally saved, actively synchronizing, and rejected work. Classifier resets carry their original reset timestamp so samples created later are not removed by delayed delivery.
+Todo and category edits merge through Automerge. Each updated Automerge document is committed atomically with an acknowledgement-backed upload command in IndexedDB; the WebSocket remains the low-latency collaboration path, while the HTTP outbox proves the server received the edit. Server-authoritative changes—including creating/importing, renaming, configuring, archiving or deleting lists; pins; direct members; group grants; ownership transfers; and classifier resets—use the same durable outbox. Commands replay in order when connectivity returns; each carries an `Idempotency-Key`, and the server replays the recorded response for a retried key (kept seven days, per user) instead of applying it twice. Dashboard and per-list status badges distinguish confirmed, locally saved, actively synchronizing, and rejected work. Classifier resets carry their original reset timestamp so samples created later are not removed by delayed delivery.
 
-Production builds generate a release-specific service worker that atomically precaches the complete exported application shell, including the Automerge WebAssembly runtime. The immutable precache is isolated from bounded runtime caches, and activation only removes obsolete Smart Todos caches. The installed app can privately receive shared text and links through a short-lived IndexedDB handoff. Controlled pages hand uploads to the worker so an in-flight flush can finish after the tab closes; Background Sync retries after reconnection where supported, with reconnect, focus, and foreground visibility as fallbacks elsewhere.
+Production builds generate a release-specific service worker that atomically precaches the complete exported application shell, including the Automerge WebAssembly runtime. The immutable precache is isolated from bounded runtime caches, and activation only removes obsolete Smart Todos caches. The share target refuses cross-site posts (`Sec-Fetch-Site: cross-site`). The installed app can privately receive shared text and links through a short-lived IndexedDB handoff. Controlled pages hand uploads to the worker so an in-flight flush can finish after the tab closes; Background Sync retries after reconnection where supported, with reconnect, focus, and foreground visibility as fallbacks elsewhere.
 
 Authentication and final authorization remain online operations. A first-time user cannot sign in offline, newly granted access cannot expose a previously inaccessible list until the server approves it, and revoked access cannot be learned while a device is disconnected. Cached data is cleared when the authenticated account changes or signs out.
 
@@ -133,7 +133,7 @@ SECURE_COOKIES=true
 TRUST_PROXY=true
 ```
 
-Only enable `TRUST_PROXY` when direct access to the backend is blocked and the trusted reverse proxy replaces `X-Forwarded-For`. Login initiation is limited per client and globally; `AUTH_LOGIN_LIMIT` controls the per-client ten-minute limit.
+Only enable `TRUST_PROXY` when direct access to the backend is blocked and the trusted reverse proxy appends the client address to `X-Forwarded-For`. Login initiation is limited per client and globally; `AUTH_LOGIN_LIMIT` controls the per-client ten-minute limit.
 
 For production rollouts, replace `latest` in the Quadlet with the tested `sha-<commit>` tag or an OCI digest. Keep the previous image reference available for rollback.
 
@@ -163,7 +163,7 @@ Required backend configuration:
 | `PUBLIC_URL` | Public backend URL used for the callback |
 | `DATA_DIR` | Persistent SQLite and Automerge storage |
 | `STATIC_DIR` | Static frontend directory; defaults to `./out` |
-| `TRUST_PROXY` | Trust the first `X-Forwarded-For` value for login rate limits; use only behind a trusted proxy |
+| `TRUST_PROXY` | Trust the last (proxy-appended) `X-Forwarded-For` value for login rate limits; use only behind a trusted proxy |
 | `AUTH_LOGIN_LIMIT` | Login initiations allowed per client in ten minutes; defaults to `30` |
 
 See [backend/.env.example](backend/.env.example) for optional settings.
@@ -185,3 +185,7 @@ npm run test:pwa:e2e
 `npm test` runs the backend integration suite plus TypeScript-level transaction-builder tests. The Playwright matrix exercises Chromium, Firefox, and WebKit; verifies the precache (including WASM), Chromium installability, a real worker upgrade, private POST sharing, offline startup, and queued-change persistence across a reload. The container workflow requires these checks to pass before publishing an image. PWA-sensitive releases should also complete the [physical-device checklist](docs/pwa-release-checklist.md).
 
 PWA assets can be regenerated with `npm run generate-assets`. Icon generation requires ImageMagick; promotional screenshots are reproducible captures of a mocked, authenticated production build and require Playwright Chromium.
+
+## Content Security Policy
+
+The static export contains a few inline bootstrap scripts. `npm run build` hashes them into `out/csp-script-hashes.json`, and the backend lists those hashes in `script-src` instead of `'unsafe-inline'`. If the file is missing (for example when serving an unbuilt directory) the backend logs a warning and falls back to `'unsafe-inline'`. Styles still allow inline styles.
