@@ -837,6 +837,11 @@ export const db = {
   auth: {
     signIn() { const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`; window.location.href = `${apiBase}/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`; },
     async signOut() {
+      // Signing out wipes the local cache, including changes that never reached the server.
+      const unsynced = outbox.filter((command) => command.status === "pending").length;
+      if (unsynced > 0 && typeof window !== "undefined" && !window.confirm(
+        `${unsynced} change${unsynced === 1 ? " has" : "s have"} not synced yet and will be lost if you sign out. Sign out anyway?`
+      )) return;
       await api("/api/auth/logout", { method: "POST" });
       const signedOutUserId = user?.id;
       clearLoadedLists();
