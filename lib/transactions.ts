@@ -7,21 +7,13 @@ import { id } from './id';
 export async function executeTransaction(
   transaction: any,
   errorMessage: string = "Operation failed",
-  showToast: boolean = false
+  _showToast: boolean = false
 ): Promise<boolean> {
   try {
     await db.transact(transaction);
     return true;
   } catch (error) {
     console.error(errorMessage, error);
-    
-    if (showToast && typeof window !== 'undefined') {
-      // Dynamic import to avoid SSR issues
-      import('../app/components/Toast').then(({ useToast }) => {
-        // Note: This is a simplified approach. In a real app, you'd want a proper toast context
-        console.error(errorMessage); // Fallback to console for now
-      });
-    }
     
     return false;
   }
@@ -34,7 +26,7 @@ export function createAsyncHandler<T extends any[]>(
   operation: (...args: T) => Promise<boolean>,
   setError?: (error: string | null) => void,
   setLoading?: (loading: boolean) => void,
-  successMessage?: string
+  _successMessage?: string
 ) {
   return async (...args: T) => {
     if (setLoading) setLoading(true);
