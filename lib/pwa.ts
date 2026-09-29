@@ -35,12 +35,24 @@ export function isStoredShareFresh(createdAt: unknown, now = Date.now()): boolea
   return typeof createdAt === "number" && Number.isFinite(createdAt) && createdAt >= now - SHARE_MAX_AGE_MS && createdAt <= now;
 }
 
-export function consumeLaunchAction(href: string): { action: LaunchAction; nextUrl: string; sharedText?: string; shareId?: string } {
+/**
+ * Reads a launch action from the URL: "new", or "share" with the shared text (or the id of
+ * a stored POST share) and optionally `list`, the slug of the list to add to (preselected,
+ * e.g. by the recipe site for a kitchen's shopping list).
+ */
+export function consumeLaunchAction(href: string): {
+  action: LaunchAction;
+  nextUrl: string;
+  sharedText?: string;
+  shareId?: string;
+  listSlug?: string;
+} {
   const url = new URL(href);
   const requestedAction = url.searchParams.get("action");
   const action = requestedAction === "new" || requestedAction === "share" ? requestedAction : null;
   let sharedText: string | undefined;
   let shareId: string | undefined;
+  let listSlug: string | undefined;
   if (action === "share") {
     const text = url.searchParams.get("text")?.trim();
     const title = url.searchParams.get("title")?.trim();
@@ -48,7 +60,9 @@ export function consumeLaunchAction(href: string): { action: LaunchAction; nextU
     sharedText = composeSharedText(title, text, sharedUrl);
     const requestedShareId = url.searchParams.get("shareId")?.trim();
     shareId = requestedShareId && /^[a-zA-Z0-9-]{1,100}$/.test(requestedShareId) ? requestedShareId : undefined;
-    for (const parameter of ["title", "text", "url", "shareId"]) url.searchParams.delete(parameter);
+    const requestedList = url.searchParams.get("list")?.trim();
+    listSlug = requestedList && /^[a-zA-Z0-9_-]{1,100}$/.test(requestedList) ? requestedList : undefined;
+    for (const parameter of ["title", "text", "url", "shareId", "list"]) url.searchParams.delete(parameter);
   }
   if (action) url.searchParams.delete("action");
   return {
@@ -56,6 +70,7 @@ export function consumeLaunchAction(href: string): { action: LaunchAction; nextU
     nextUrl: `${url.pathname}${url.search}${url.hash}`,
     ...(sharedText ? { sharedText } : {}),
     ...(shareId ? { shareId } : {}),
+    ...(listSlug ? { listSlug } : {}),
   };
 }
 

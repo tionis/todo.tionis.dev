@@ -106,6 +106,7 @@ function AuthenticatedApp({ user }: { user: User }) {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [sharedTodoText, setSharedTodoText] = useState<string | null>(null);
+  const [sharedListSlug, setSharedListSlug] = useState<string | null>(null);
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -115,6 +116,7 @@ function AuthenticatedApp({ user }: { user: User }) {
     }
     if (launch.action) window.history.replaceState(window.history.state, "", launch.nextUrl);
     if (launch.action === "share") {
+      if (launch.listSlug) setSharedListSlug(launch.listSlug);
       if (launch.sharedText) setSharedTodoText(launch.sharedText);
       else if (launch.shareId) {
         void consumeStoredShare(launch.shareId)
@@ -434,6 +436,8 @@ function AuthenticatedApp({ user }: { user: User }) {
           <ShareTodoModal
             initialText={sharedTodoText}
             lists={writableLists}
+            listsLoading={listsLoading}
+            preferredSlug={sharedListSlug}
             onAdd={addSharedTodo}
             onClose={() => setSharedTodoText(null)}
           />
@@ -798,16 +802,30 @@ function CreateListModal({
 function ShareTodoModal({
   initialText,
   lists,
+  listsLoading,
+  preferredSlug,
   onAdd,
   onClose,
 }: {
   initialText: string;
   lists: any[];
+  listsLoading: boolean;
+  /** Slug of the list the share asked for (`list=`), preselected if writable. */
+  preferredSlug: string | null;
   onAdd: (listId: string, items: string[]) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [text, setText] = useState(initialText);
-  const [listId, setListId] = useState(lists[0]?.id || "");
+  const preferred = preferredSlug ? lists.find((list) => list.slug === preferredSlug) : undefined;
+  const [listId, setListId] = useState(preferred?.id || lists[0]?.id || "");
+  const [pickedByHand, setPickedByHand] = useState(false);
+  // Lists may arrive after the dialog opened: follow the requested list until one is picked.
+  useEffect(() => {
+    if (pickedByHand) return;
+    const next = preferred?.id || lists[0]?.id || "";
+    if (next && next !== listId) setListId(next);
+  }, [preferred?.id, lists, pickedByHand, listId]);
+  const preferredMissing = !!preferredSlug && !listsLoading && !preferred;
   const [saving, setSaving] = useState(false);
   // A list of lines (e.g. a recipe's ingredients) is offered as separate items; ordinary
   // shares like a title with its link stay one todo. Either can be switched.
@@ -872,13 +890,21 @@ function ShareTodoModal({
           <select
             id="shared-todo-list"
             value={listId}
-            onChange={(event) => setListId(event.target.value)}
+            onChange={(event) => {
+              setListId(event.target.value);
+              setPickedByHand(true);
+            }}
             disabled={lists.length === 0}
             className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
           >
             {lists.length === 0 && <option value="">No writable lists available</option>}
             {lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
           </select>
+          {preferredMissing && (
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+              The list from the link isn&apos;t available to you (it may not exist, or you can&apos;t write to it). Pick another one.
+            </p>
+          )}
         </div>
         <div className="flex gap-3">
           <button type="submit" disabled={!canSubmit} className="flex-1 rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50">

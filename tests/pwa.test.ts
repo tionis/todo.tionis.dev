@@ -32,6 +32,18 @@ test("consumes shared text and URL for the share-target flow", () => {
   );
 });
 
+test("passes the list to add shared items to", () => {
+  assert.deepEqual(
+    consumeLaunchAction("https://todo.example/?action=share&text=240+g+Spaghetti%0A2+Eier&list=aB3dE5fG"),
+    { action: "share", sharedText: "240 g Spaghetti\n2 Eier", listSlug: "aB3dE5fG", nextUrl: "/" },
+  );
+  assert.deepEqual(
+    consumeLaunchAction("https://todo.example/?action=share&text=Milch&list=..%2Fevil"),
+    { action: "share", sharedText: "Milch", nextUrl: "/" },
+    "an invalid list is ignored",
+  );
+});
+
 test("preserves distinct share fields without duplicating identical values", () => {
   assert.equal(composeSharedText("Recipe", "Buy lemons", "https://example.com"), "Recipe\nBuy lemons\nhttps://example.com");
   assert.equal(composeSharedText("Buy lemons", "Buy lemons", null), "Buy lemons");

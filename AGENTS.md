@@ -62,7 +62,8 @@ On Eric's machine npm may be managed by mise; if plain `npm` is not found, use
   app is a share target (`POST /share-target`, also `/?action=share&text=…`). Shared text
   that looks like a list (several lines, no link) is offered as separate items
   (`lib/pwa.ts`: `splitSharedItems`, `looksLikeItemList`); rezepte.wendland.dev uses this
-  to send a recipe's ingredients.
+  to send a recipe's ingredients. An optional `list=<slug>` preselects that list in the
+  share dialog (if the user can write to it; otherwise the dialog says so).
 
 ## Permissions
 
