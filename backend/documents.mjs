@@ -83,11 +83,17 @@ export class DocumentStore {
   }
 
   async merge(listId, bytes) {
+    return (await this.mergeChanges(listId, bytes)).bytes;
+  }
+
+  // Like merge, but also reports the changes the update added (`delta`, empty when
+  // nothing was new) and the resulting heads, so clients can sync incrementally.
+  async mergeChanges(listId, bytes) {
     assertDocumentBytes(bytes);
     return this.enqueue(listId, async () => {
       const current = await this.read(listId);
-      const merged = await this.processor.process("merge", current, bytes);
-      await this.save(listId, merged);
+      const merged = await this.processor.process("merge", current, bytes, undefined, true);
+      await this.save(listId, merged.bytes);
       return merged;
     }, bytes.byteLength);
   }

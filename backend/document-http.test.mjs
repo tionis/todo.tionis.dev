@@ -10,6 +10,26 @@ import * as Automerge from "@automerge/automerge";
 import WebSocket from "ws";
 import { hashToken, openDatabase } from "./database.mjs";
 
+// Resolves with the next "delta" header and the change chunk that follows it.
+function nextDelta(socket) {
+  return new Promise((resolve, reject) => {
+    let header;
+    const onMessage = (data, binary) => {
+      if (!binary) {
+        const message = JSON.parse(data.toString());
+        if (message.type !== "delta") return;
+        header = message;
+        if (message.size) return;
+      }
+      socket.off("message", onMessage);
+      socket.off("error", reject);
+      resolve({ heads: header.heads, bytes: binary ? new Uint8Array(data) : new Uint8Array() });
+    };
+    socket.on("message", onMessage);
+    socket.once("error", reject);
+  });
+}
+
 function nextDocument(socket) {
   return new Promise((resolve, reject) => {
     const onMessage = (bytes, binary) => {
@@ -68,10 +88,24 @@ test("HTTP and WebSocket preserve the document format through merge and classifi
         createdAt: "2026-01-01T00:00:00.000Z",
       };
     });
-    const mergedDocument = nextDocument(socket);
+    const baseBytes = Automerge.save(initial);
+    const mergedDelta = nextDelta(socket);
     const update = await post("/api/lists/synthetic-list/document", { document: Buffer.from(Automerge.save(edited)).toString("base64") });
     assert.equal(update.status, 200);
-    assert.equal((await mergedDocument).todos.item.text, "Invented grocery");
+    const { bytes: delta, heads } = await mergedDelta;
+    assert.ok(delta.byteLength > 0 && delta.byteLength < Automerge.save(edited).byteLength + 1);
+    const followed = Automerge.loadIncremental(Automerge.load(baseBytes), delta);
+    assert.equal(followed.todos.item.text, "Invented grocery");
+    assert.deepEqual([...Automerge.getHeads(followed)].sort(), [...heads].sort());
+
+    // A client may also upload only the changes since the server's heads.
+    const local = Automerge.change(followed, (draft) => { draft.todos.second = { id: "second", text: "Second", done: false }; });
+    const acknowledged = nextDelta(socket);
+    socket.send(Automerge.saveSince(local, heads));
+    await acknowledged;
+    const reread = await (await fetch(`${origin}/api/lists/synthetic-list`, { headers })).json();
+    assert.equal(Automerge.load(Buffer.from(reread.document, "base64")).todos.second.text, "Second");
+
     const resetDocument = nextDocument(socket);
     const reset = await post("/api/lists/synthetic-list/classifier/reset", { resetAt: "2026-01-02T00:00:00.000Z" });
     assert.equal(reset.status, 200);

@@ -5,6 +5,8 @@ import { DocumentProcessor } from "./document-processor.mjs";
 
 test("releases an idle worker and starts another for the next document", { timeout: 5_000 }, async () => {
   const processor = new DocumentProcessor({ idleTimeoutMs: 20 });
+  // The idle timer and worker are unref'd (a server keeps the loop alive); a test needs its own handle.
+  const keepAlive = setInterval(() => {}, 1_000);
   try {
     const bytes = await processor.process("create");
     const worker = processor.worker;
@@ -14,6 +16,7 @@ test("releases an idle worker and starts another for the next document", { timeo
     assert.deepEqual(roundTrip, bytes);
     assert.notEqual(processor.worker, worker);
   } finally {
+    clearInterval(keepAlive);
     await processor.worker?.terminate();
   }
 });

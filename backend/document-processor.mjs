@@ -12,14 +12,15 @@ export class DocumentProcessor {
     this.queuedOperations = 0;
   }
 
-  process(action, currentBytes, incomingBytes, resetAt) {
+  // Resolves with the serialized document, or with { bytes, delta, heads } when `detailed` is set (merge only).
+  process(action, currentBytes, incomingBytes, resetAt, detailed = false) {
     if (this.queuedOperations >= MAX_QUEUED_OPERATIONS) {
       return Promise.reject(Object.assign(new Error("Document processor is busy"), { status: 503 }));
     }
     clearTimeout(this.idleTimer);
     this.queuedOperations += 1;
     const operation = this.queue.catch(() => {}).then(
-      () => this.execute(action, currentBytes, incomingBytes, resetAt)
+      () => this.execute(action, currentBytes, incomingBytes, resetAt, detailed)
     );
     this.queue = operation.then(() => {}, () => {}).finally(() => {
       this.queuedOperations -= 1;
@@ -55,11 +56,14 @@ export class DocumentProcessor {
     return this.worker;
   }
 
-  execute(action, currentBytes, incomingBytes, resetAt) {
+  execute(action, currentBytes, incomingBytes, resetAt, detailed) {
     const worker = this.ensureWorker();
+    // An idle worker is unref'd so it never blocks exit; hold a ref while busy.
+    worker.ref();
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timer);
+        worker.unref();
         worker.off("message", onMessage);
         worker.off("error", onFailure);
         worker.off("exit", onExit);
@@ -67,7 +71,7 @@ export class DocumentProcessor {
       const onMessage = (message) => {
         cleanup();
         if (message.error) reject(new Error(message.error));
-        else resolve(message.bytes);
+        else resolve(detailed ? message : message.bytes);
       };
       const onFailure = (error) => {
         cleanup();

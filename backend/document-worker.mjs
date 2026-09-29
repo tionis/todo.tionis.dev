@@ -29,12 +29,17 @@ function load(bytes) {
 parentPort.on("message", ({ action, currentBytes, incomingBytes, resetAt }) => {
   let current;
   let incoming;
+  let headsBefore;
   try {
     let document;
     if (action === "merge") {
       current = load(currentBytes);
-      incoming = load(incomingBytes);
-      document = Automerge.merge(current, incoming);
+      // loadIncremental takes a full document or a change chunk (saveSince); the merged result is validated below.
+      if (!(incomingBytes instanceof Uint8Array) || incomingBytes.byteLength > MAX_DOCUMENT_BYTES) {
+        throw new Error("Automerge document is too large");
+      }
+      headsBefore = Automerge.getHeads(current);
+      document = Automerge.loadIncremental(current, incomingBytes);
     } else if (action === "reset") {
       current = load(currentBytes);
       document = Automerge.change(current, (draft) => deleteClassifierHistoryThrough(draft, resetAt));
@@ -49,7 +54,13 @@ parentPort.on("message", ({ action, currentBytes, incomingBytes, resetAt }) => {
     validate(document);
     const bytes = Automerge.save(document);
     if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("Automerge document is too large");
-    parentPort.postMessage({ bytes }, [bytes.buffer]);
+    if (headsBefore) {
+      const delta = Automerge.saveSince(document, headsBefore);
+      const heads = Automerge.getHeads(document);
+      parentPort.postMessage({ bytes, delta, heads }, [bytes.buffer, delta.buffer]);
+    } else {
+      parentPort.postMessage({ bytes }, [bytes.buffer]);
+    }
   } catch (error) {
     parentPort.postMessage({ error: error instanceof Error ? error.message : "Invalid Automerge document" });
   } finally {
