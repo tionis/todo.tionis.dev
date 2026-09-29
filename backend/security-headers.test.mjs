@@ -33,3 +33,10 @@ test("applies every policy header to an HTTP response", () => {
 
   assert.deepEqual(Object.fromEntries(applied), securityHeaders("https://todo.example"));
 });
+
+test("allows only hashed inline scripts when the build provides hashes", () => {
+  const headers = securityHeaders("https://todo.example", ["sha256-abc+/="]);
+
+  assert.match(headers["Content-Security-Policy"], /script-src 'self' 'sha256-abc\+\/=' 'wasm-unsafe-eval'/);
+  assert.doesNotMatch(headers["Content-Security-Policy"], /script-src[^;]*'unsafe-inline'/);
+});

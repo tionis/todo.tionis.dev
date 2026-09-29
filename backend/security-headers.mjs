@@ -4,7 +4,9 @@ function websocketOrigin(url) {
   return websocketUrl.origin;
 }
 
-export function securityHeaders(publicUrl) {
+// `scriptHashes` are the sha256 digests of the export's inline scripts (see
+// scripts/generate-csp-hashes.mjs). Without them, fall back to 'unsafe-inline'.
+export function securityHeaders(publicUrl, scriptHashes = []) {
   const origin = new URL(publicUrl);
   const contentSecurityPolicy = [
     "default-src 'self'",
@@ -17,7 +19,7 @@ export function securityHeaders(publicUrl) {
     "img-src 'self' data: blob:",
     "manifest-src 'self'",
     "object-src 'none'",
-    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+    `script-src 'self' ${scriptHashes.length ? scriptHashes.map((hash) => `'${hash}'`).join(" ") : "'unsafe-inline'"} 'wasm-unsafe-eval'`,
     "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline'",
     "worker-src 'self' blob:",
@@ -36,8 +38,8 @@ export function securityHeaders(publicUrl) {
   };
 }
 
-export function applySecurityHeaders(response, publicUrl) {
-  for (const [name, value] of Object.entries(securityHeaders(publicUrl))) {
+export function applySecurityHeaders(response, publicUrl, scriptHashes = []) {
+  for (const [name, value] of Object.entries(securityHeaders(publicUrl, scriptHashes))) {
     response.setHeader(name, value);
   }
 }

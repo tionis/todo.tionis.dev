@@ -10,7 +10,7 @@
     "test:unit": "tsx --test tests/*.test.ts",
     "test:pwa:e2e": "npm run build:e2e && playwright test",
     "test": "npm run test:backend && npm run test:unit",
-    "build": "next build && node scripts/generate-service-worker.mjs",
+    "build": "next build && node scripts/generate-csp-hashes.mjs && node scripts/generate-service-worker.mjs",
     "start": "node backend/server.mjs",
     "lint": "eslint .",
     "generate-icons": "npm run generate-icons:main && npm run generate-icons:apple",
