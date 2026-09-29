@@ -22,7 +22,7 @@ export interface User { id: string; email?: string | null; name?: string | null;
 type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "pinnedLists";
 type Operation = { entity: EntityName; id: string; kind: "update" | "delete" | "link" | "unlink"; data?: Record<string, any>; links?: Record<string, string> };
 interface ListDocument { [key: string]: unknown; schemaVersion: 1; todos: Record<string, any>; categories: Record<string, any>; classifierHistory: Record<string, any> }
-interface ListState { metadata: any; document?: Automerge.Doc<ListDocument>; socket?: WebSocket; access?: "read" | "write" }
+interface ListState { metadata: any; document?: Automerge.Doc<ListDocument>; socket?: WebSocket; access?: "read" | "write"; serverHeads?: string[] }
 interface QueuedRequest {
   id: string;
   userId: string;
@@ -272,13 +272,24 @@ function connectEvents() {
     if (user) setTimeout(connectEvents, 2_000);
   };
 }
+// Send only what the server lacks; fall back to the whole document when its heads are unknown.
+function syncPayload(state: ListState, document: Automerge.Doc<ListDocument>) {
+  if (state.serverHeads) {
+    try { return Automerge.saveSince(document, state.serverHeads); } catch { /* unknown heads: send everything */ }
+  }
+  return Automerge.save(document);
+}
 function connectList(listId: string) {
   const state = lists.get(listId);
   if (!state || state.socket || state.metadata._localOnly || state.metadata._deleted || typeof WebSocket === "undefined") return;
   const socket = new WebSocket(websocketUrl(listId)); socket.binaryType = "arraybuffer"; state.socket = socket;
-  socket.onmessage = async (event) => {
-    if (typeof event.data === "string") {
-      const message = JSON.parse(event.data);
+  // A "delta" header announces the server's heads and the size of the change chunk
+  // that follows. Frames must be handled strictly in order, so they go through a queue.
+  let pendingDelta: { heads: string[]; size: number } | undefined;
+  let frames: Promise<void> = Promise.resolve();
+  const handleFrame = async (data: string | ArrayBuffer) => {
+    if (typeof data === "string") {
+      const message = JSON.parse(data);
       if (message.type === "ready") {
         state.access = message.access;
         const localPresence = localPresenceByList.get(listId);
@@ -290,21 +301,50 @@ function connectList(listId: string) {
       } else if (message.type === "presence") {
         presenceByList.set(listId, message.peers || {});
         emit();
+      } else if (message.type === "delta") {
+        pendingDelta = { heads: message.heads, size: message.size };
+        if (!message.size) await applyServerState(undefined, message.heads);
       }
       return;
     }
-    const remoteBytes = new Uint8Array(event.data);
+    const remoteBytes = new Uint8Array(data);
     if (remoteBytes.byteLength > MAX_DOCUMENT_BYTES) { socket.close(1009, "Document too large"); return; }
-    const remote = Automerge.load<ListDocument>(remoteBytes);
-    const reconciled = reconcileRemoteDocument(Automerge, state.document, remote, state.access);
-    await writeLocalDocument(listId, reconciled.document);
-    state.document = reconciled.document;
-    if (reconciled.shouldUpload && socket.readyState === WebSocket.OPEN) {
-      const bytes = Automerge.save(reconciled.document);
+    const delta = pendingDelta;
+    pendingDelta = undefined;
+    await applyServerState(remoteBytes, delta?.heads, !!delta);
+  };
+  // `remoteBytes` is a full document, or (when `incremental`) only the changes since the last frame.
+  const applyServerState = async (remoteBytes: Uint8Array | undefined, remoteHeads?: string[], incremental = false) => {
+    let document: Automerge.Doc<ListDocument>;
+    let shouldUpload: boolean;
+    if (incremental || !remoteBytes) {
+      const local = state.document || emptyDocument();
+      document = remoteBytes ? Automerge.loadIncremental<ListDocument>(local, remoteBytes) : local;
+      const heads = [...(remoteHeads || [])].sort();
+      const own = [...Automerge.getHeads(document)].sort();
+      shouldUpload = state.access === "write" && !(heads.length === own.length && heads.every((head, index) => head === own[index]));
+    } else {
+      const remote = Automerge.load<ListDocument>(remoteBytes);
+      const reconciled = reconcileRemoteDocument(Automerge, state.document, remote, state.access);
+      document = reconciled.document;
+      shouldUpload = reconciled.shouldUpload;
+      remoteHeads = Automerge.getHeads(remote);
+    }
+    state.serverHeads = remoteHeads;
+    await writeLocalDocument(listId, document);
+    state.document = document;
+    if (shouldUpload && socket.readyState === WebSocket.OPEN) {
+      const bytes = syncPayload(state, document);
       if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
       socket.send(bytes);
     }
     emit();
+  };
+  socket.onmessage = (event) => {
+    frames = frames.then(() => handleFrame(event.data)).catch((error) => {
+      console.error("Could not apply synchronized changes", error);
+      if (socket.readyState === WebSocket.OPEN) socket.close(1011, "Sync retry required");
+    });
   };
   socket.onclose = (event) => {
     if (state.socket === socket) state.socket = undefined;
@@ -770,7 +810,7 @@ async function transact(input: any) {
         state.document = nextDocument;
         if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") {
           try {
-            state.socket.send(nextBytes);
+            state.socket.send(syncPayload(state, nextDocument));
           } catch {
             state.socket.close(1011, "Sync retry required");
           }
