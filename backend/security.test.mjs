@@ -85,3 +85,18 @@ test("directory group membership grants and revokes private list access", async 
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("an OIDC login whose username is taken by another active user still succeeds", async () => {
+  const { upsertOidcUser } = await import("./database.mjs");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "smart-todos-username-"));
+  const database = openDatabase(directory);
+  try {
+    const first = upsertOidcUser(database, "issuer", { sub: "a", preferred_username: "Alice" });
+    const second = upsertOidcUser(database, "issuer", { sub: "b", preferred_username: "alice" });
+    assert.equal(first.username, "Alice");
+    assert.equal(second.username, null);
+  } finally {
+    database.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

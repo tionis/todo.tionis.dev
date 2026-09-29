@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 
+export const IDEMPOTENCY_TTL_MS = 7 * 86_400_000;
+
 export function hashToken(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -116,6 +118,17 @@ export function openDatabase(dataDir) {
       UNIQUE (list_id, group_id)
     );
     CREATE INDEX IF NOT EXISTS list_group_grants_group_id ON list_group_grants(group_id);
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      status INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, key)
+    );
+    CREATE INDEX IF NOT EXISTS idempotency_keys_created_at ON idempotency_keys(created_at);
   `);
 
   ensureColumn(database, "users", "username TEXT");
@@ -133,6 +146,7 @@ export function openDatabase(dataDir) {
 
   database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
   database.prepare("DELETE FROM oidc_states WHERE expires_at <= ?").run(Date.now());
+  database.prepare("DELETE FROM idempotency_keys WHERE created_at <= ?").run(Date.now() - IDEMPOTENCY_TTL_MS);
   return database;
 }
 
@@ -151,6 +165,10 @@ export function upsertOidcUser(database, issuer, claims) {
     "SELECT id FROM users WHERE issuer = ? AND subject = ?"
   ).get(issuer, claims.sub);
   const id = current?.id || crypto.randomUUID();
+  // The active-username index is unique; a clashing claim must not block login.
+  const username = claims.preferred_username && !database.prepare(
+    "SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND active = 1 AND id != ?"
+  ).get(claims.preferred_username, id) ? claims.preferred_username : null;
   database.prepare(`
     INSERT INTO users (id, issuer, subject, email, email_verified, name, username, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -167,7 +185,7 @@ export function upsertOidcUser(database, issuer, claims) {
     claims.email || null,
     claims.email ? 1 : 0,
     claims.name || null,
-    claims.preferred_username || null,
+    username,
     now,
     now,
   );
