@@ -7,7 +7,8 @@ import { downloadListExport } from '../../../lib/listExport';
 import { formatListTags, parseListTags, tagInputToList } from '../../../lib/tags';
 import Modal from '../Modal';
 import type { TodoList } from './types';
-import { ClassifierDetailsModal, ClassifierSettingsRow } from './ClassifierModals';
+import { ClassifierDetailsModal } from './ClassifierDetailsModal';
+import { ClassifierSettingsRow } from './ClassifierSettingsRow';
 import { ImportTemplateModal } from './ImportTemplateModal';
 import { TransferOwnershipModal } from './ListModals';
 
