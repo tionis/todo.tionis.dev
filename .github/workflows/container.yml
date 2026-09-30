@@ -36,6 +36,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
       - name: Run correctness tests
         run: npm test
 
@@ -48,7 +54,7 @@ jobs:
       - name: Install browsers for PWA tests
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Run browser PWA tests
+      - name: Run browser tests (PWA and real-backend sync)
         run: npm run test:pwa:e2e
 
   pull-request-build:

@@ -13,6 +13,7 @@
     "build": "next build && node scripts/generate-csp-hashes.mjs && node scripts/generate-service-worker.mjs",
     "start": "node backend/server.mjs",
     "lint": "eslint .",
+    "benchmark:memory": "node scripts/benchmark-memory.mjs",
     "generate-icons": "npm run generate-icons:main && npm run generate-icons:apple",
     "generate-icons:main": "for size in 72 96 128 144 152 192 384 512; do convert public/icon.svg -resize ${size}x${size} public/icon-${size}.png; done",
     "generate-icons:apple": "convert public/icon.svg -resize 180x180 public/apple-icon-180.png",
