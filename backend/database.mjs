@@ -118,17 +118,23 @@ export function openDatabase(dataDir) {
       UNIQUE (list_id, group_id)
     );
     CREATE INDEX IF NOT EXISTS list_group_grants_group_id ON list_group_grants(group_id);
-    CREATE TABLE IF NOT EXISTS idempotency_keys (
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    DROP TABLE IF EXISTS idempotency_keys;
+    CREATE TABLE IF NOT EXISTS idempotency_records (
+      scope TEXT NOT NULL,
       key TEXT NOT NULL,
       method TEXT NOT NULL,
       path TEXT NOT NULL,
       status INTEGER NOT NULL,
       body TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      PRIMARY KEY (user_id, key)
+      PRIMARY KEY (scope, key)
     );
-    CREATE INDEX IF NOT EXISTS idempotency_keys_created_at ON idempotency_keys(created_at);
+    CREATE INDEX IF NOT EXISTS idempotency_records_created_at ON idempotency_records(created_at);
+    CREATE TABLE IF NOT EXISTS rate_limits (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      reset_at INTEGER NOT NULL
+    );
   `);
 
   ensureColumn(database, "users", "username TEXT");
@@ -146,7 +152,8 @@ export function openDatabase(dataDir) {
 
   database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
   database.prepare("DELETE FROM oidc_states WHERE expires_at <= ?").run(Date.now());
-  database.prepare("DELETE FROM idempotency_keys WHERE created_at <= ?").run(Date.now() - IDEMPOTENCY_TTL_MS);
+  database.prepare("DELETE FROM idempotency_records WHERE created_at <= ?").run(Date.now() - IDEMPOTENCY_TTL_MS);
+  database.prepare("DELETE FROM rate_limits WHERE reset_at <= ?").run(Date.now());
   return database;
 }
 

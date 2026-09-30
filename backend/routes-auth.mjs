@@ -1,6 +1,6 @@
 import { NOT_HANDLED } from "./route-result.mjs";
 import { beginLogin, clearSessionCookie, finishLogin, OIDC_BINDING_COOKIE, oidcBindingCookie, sessionCookie } from "./auth.mjs";
-import { cookies, fail, json } from "./http-helpers.mjs";
+import { cookies, fail, json, readJson } from "./http-helpers.mjs";
 import { hashToken } from "./database.mjs";
 
 // Health check and OIDC login/session routes.
@@ -33,6 +33,9 @@ export function createRoutesAuth(ctx) {
     }
     if (request.method === "GET" && url.pathname === "/api/auth/callback") {
       const session = await finishLogin(database, config, url, cookies(request)[OIDC_BINDING_COOKIE]);
+      // Rotate: a session that was valid before this login must not outlive it.
+      const previous = cookies(request).smart_todos_session;
+      if (previous) database.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashToken(previous));
       response.writeHead(302, {
         Location: new URL(session.returnTo, config.appOrigin).href,
         "Set-Cookie": sessionCookie(config, session.sessionToken, session.expiresAt),
@@ -47,7 +50,10 @@ export function createRoutesAuth(ctx) {
     if (request.method === "POST" && url.pathname === "/api/auth/logout") {
       if (!trustedMutation(request, response)) return;
       const token = cookies(request).smart_todos_session;
-      if (token) database.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashToken(token));
+      const body = await readJson(request, 1_000);
+      const user = requestUser(request);
+      if (body.all === true && user) database.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
+      else if (token) database.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashToken(token));
       response.setHeader("Set-Cookie", clearSessionCookie(config));
       json(response, 200, { ok: true });
       return;

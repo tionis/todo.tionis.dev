@@ -6,7 +6,7 @@ import { MAX_DOCUMENT_BYTES } from "./documents.mjs";
 
 // WebSocket layer: per-list document sync and presence (/sync) and per-user dashboard
 // notifications (/events). Attach it to the HTTP server with `attach`.
-export function createRealtime({ config, database, documents, requestUser, requestAddress, listRowById, accessFor, listShape, allowWritesForClient }) {
+export function createRealtime({ config, database, documents, requestUser, requestAddress, listRowById, accessFor, listShape, allowWrite }) {
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_DOCUMENT_BYTES });
   const clientsByList = new Map();
   const eventClientsByUser = new Map();
@@ -171,7 +171,7 @@ export function createRealtime({ config, database, documents, requestUser, reque
       webSocket.pendingUpdates += 1;
       try {
         const currentAccess = accessFor(listRowById(listId), getUserForSession(database, webSocket.sessionToken));
-        if (!allowWritesForClient(webSocket.user?.id || webSocket.address)) {
+        if (!allowWrite(webSocket.user, webSocket.address)) {
           webSocket.send(JSON.stringify({ type: "error", message: "Too many updates; slow down" }));
           return;
         }

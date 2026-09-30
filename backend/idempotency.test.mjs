@@ -21,7 +21,7 @@ test("a retried command with the same Idempotency-Key replays the first outcome"
   try {
     const now = new Date().toISOString();
     database.prepare("INSERT INTO users (id, issuer, subject, active, created_at, updated_at) VALUES ('u', 'i', 's', 1, ?, ?)").run(now, now);
-    const user = { id: "u" };
+    const user = "u";
     const url = new URL("http://x/api/lists/1/members");
     const request = { method: "POST", headers: { "idempotency-key": "command-0001" } };
 
@@ -49,7 +49,13 @@ test("a retried command with the same Idempotency-Key replays the first outcome"
     attempt.end('{"error":"no"}');
     assert.equal(withIdempotency(database, denied, fakeResponse(), () => user, url), false);
 
-    // Anonymous requests and malformed keys are ignored.
+    // Anonymous writers are scoped by address; a missing scope or malformed key is ignored.
+    const anonymous = fakeResponse();
+    assert.equal(withIdempotency(database, request, anonymous, () => "anon:203.0.113.9", url), false);
+    anonymous.writeHead(200, {});
+    anonymous.end("{}");
+    assert.equal(withIdempotency(database, request, fakeResponse(), () => "anon:203.0.113.9", url), true);
+    assert.equal(withIdempotency(database, request, fakeResponse(), () => "anon:198.51.100.1", url), false);
     assert.equal(withIdempotency(database, request, fakeResponse(), () => null, url), false);
   } finally {
     database.close();

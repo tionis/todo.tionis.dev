@@ -7,7 +7,7 @@ import { DocumentStore } from "./documents.mjs";
 import { createRequestHelpers, fail } from "./http-helpers.mjs";
 import { withIdempotency } from "./idempotency.mjs";
 import { createListShaper } from "./list-shape.mjs";
-import { createFixedWindowRateLimiter } from "./rate-limit.mjs";
+import { createFixedWindowRateLimiter, createPersistentRateLimiter } from "./rate-limit.mjs";
 import { createRealtime } from "./realtime.mjs";
 import { NOT_HANDLED } from "./route-result.mjs";
 import { createRoutesAuth } from "./routes-auth.mjs";
@@ -32,9 +32,12 @@ const scriptHashes = await fs.readFile(path.join(config.staticDir, "csp-script-h
     return [];
   });
 
-const allowLoginForClient = createFixedWindowRateLimiter({ limit: config.authLoginLimit, windowMs: 10 * 60_000 });
-const allowWritesForClient = createFixedWindowRateLimiter({ limit: 600, windowMs: 60_000 });
-const allowLoginGlobally = createFixedWindowRateLimiter({ limit: 2_000, windowMs: 10 * 60_000, maxKeys: 1 });
+// Login limits survive restarts; write limits are high-volume and stay in memory.
+const allowLoginForClient = createPersistentRateLimiter(database, { name: "login", limit: config.authLoginLimit, windowMs: 10 * 60_000 });
+const allowLoginGlobally = createPersistentRateLimiter(database, { name: "login-global", limit: 2_000, windowMs: 10 * 60_000 });
+const allowUserWrites = createFixedWindowRateLimiter({ limit: 600, windowMs: 60_000 });
+const allowAnonymousWrites = createFixedWindowRateLimiter({ limit: 60, windowMs: 60_000 });
+const allowWrite = (user, address) => (user ? allowUserWrites(user.id) : allowAnonymousWrites(address));
 
 const { requestUser, requestAddress, setCors, requireUser, trustedMutation } = createRequestHelpers({ config, database });
 const shaper = createListShaper({ database });
@@ -54,7 +57,7 @@ const server = http.createServer(async (request, response) => {
         },
       });
     } else if (url.pathname.startsWith("/api/") || url.pathname === "/sync") {
-      if (withIdempotency(database, request, response, () => requestUser(request), url)) return;
+      if (withIdempotency(database, request, response, () => requestUser(request)?.id ?? `anon:${requestAddress(request)}`, url)) return;
       await handleApi(request, response, url);
     } else if (!await serveStatic(request, response, url, config.staticDir)) {
       fail(response, 404, "Not found");
@@ -66,12 +69,12 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-const realtime = createRealtime({ config, database, documents, requestUser, requestAddress, allowWritesForClient, ...shaper });
+const realtime = createRealtime({ config, database, documents, requestUser, requestAddress, allowWrite, ...shaper });
 realtime.attach(server);
 
 const routeContext = {
   config, database, documents, realtime, requestUser, requestAddress, requireUser, trustedMutation,
-  allowLoginForClient, allowLoginGlobally, allowWritesForClient, ...shaper,
+  allowLoginForClient, allowLoginGlobally, allowWrite, ...shaper,
 };
 const routeGroups = [
   createRoutesAuth(routeContext),
@@ -101,7 +104,8 @@ const cleanup = setInterval(() => {
   const now = Date.now();
   database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(now);
   database.prepare("DELETE FROM oidc_states WHERE expires_at <= ?").run(now);
-  database.prepare("DELETE FROM idempotency_keys WHERE created_at <= ?").run(now - IDEMPOTENCY_TTL_MS);
+  database.prepare("DELETE FROM idempotency_records WHERE created_at <= ?").run(now - IDEMPOTENCY_TTL_MS);
+  database.prepare("DELETE FROM rate_limits WHERE reset_at <= ?").run(now);
 }, 60 * 60_000);
 cleanup.unref();
 

@@ -6,7 +6,7 @@ import { decodeDocument, fail, json, readJson, safeDecode } from "./http-helpers
 // Document uploads, pins and classifier resets for a list.
 // A handler answers the request and returns, or returns NOT_HANDLED so the next group can try.
 export function createRoutesContent(ctx) {
-  const { database, documents, requestUser, requireUser, trustedMutation, listRowById, accessFor, allowWritesForClient, requestAddress, realtime } = ctx;
+  const { database, documents, requestUser, requireUser, trustedMutation, listRowById, accessFor, allowWrite, requestAddress, realtime } = ctx;
 
   return async function handle(request, response, url) {
     const listDocumentMatch = url.pathname.match(/^\/api\/lists\/([^/]+)\/document$/);
@@ -16,7 +16,7 @@ export function createRoutesContent(ctx) {
       const listId = safeDecode(listDocumentMatch[1]);
       const row = listRowById(listId);
       if (!accessFor(row, user).write) return fail(response, row ? 403 : 404, row ? "List is read-only" : "List not found");
-      if (!allowWritesForClient(user?.id || requestAddress(request))) {
+      if (!allowWrite(user, requestAddress(request))) {
         response.setHeader("Retry-After", "60");
         return fail(response, 429, "Too many document updates; slow down");
       }
