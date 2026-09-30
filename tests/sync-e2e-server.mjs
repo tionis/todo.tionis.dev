@@ -8,6 +8,9 @@ const server = await startTestServer({
   seed(database) {
     addUser(database, "alice", { username: "alice", name: "Alice" });
     addUser(database, "bob", { username: "bob", name: "Bob" });
+    addUser(database, "carol", { username: "carol", name: "Carol" });
+    addSession(database, "carol", "carol-first-session");
+    addSession(database, "carol", "carol-second-session");
     addSession(database, "alice", "alice-e2e-session");
     addSession(database, "bob", "bob-e2e-session");
     const now = new Date().toISOString();

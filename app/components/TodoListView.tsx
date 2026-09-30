@@ -7,6 +7,7 @@ import { executeTransaction, canUserWrite, canUserView } from '../../lib/transac
 import { parseListTags } from '../../lib/tags';
 import { createClassificationTransaction, createTodoDeleteTransactions } from '../../lib/todoTransactions';
 import { userDisplayName } from '../../shared/identity.mjs';
+import { useSignOut } from './SignOutDialog';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorDisplay from './ErrorDisplay';
 import { useToast } from './Toast';
@@ -172,6 +173,7 @@ function TodoListApp({
   deleteTodo: (todo: Todo) => void;
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
+  const { requestSignOut, dialog: signOutDialog } = useSignOut();
   const room = db.room("todoList", todoList.slug);
   const {
     user: myPresence,
@@ -309,6 +311,7 @@ function TodoListApp({
 
   return (
     <div className="font-mono min-h-screen p-4 md:p-8 bg-gray-50 dark:bg-slate-900">
+      {signOutDialog}
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-start mb-6">
           <div className="flex items-center space-x-4">
@@ -389,7 +392,7 @@ function TodoListApp({
               )}
               {user && (
                 <button
-                  onClick={() => db.auth.signOut()}
+                  onClick={requestSignOut}
                   className="px-3 py-2 text-sm bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
                 >
                   Sign Out
@@ -447,7 +450,7 @@ function TodoListApp({
                   {user && (
                     <button
                       onClick={() => {
-                        db.auth.signOut();
+                        requestSignOut();
                         setShowMobileMenu(false);
                       }}
                       className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"

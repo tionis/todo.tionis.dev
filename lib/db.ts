@@ -862,13 +862,9 @@ export const db = {
   },
   auth: {
     signIn() { const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`; window.location.href = `${apiBase}/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`; },
-    async signOut() {
-      // Signing out wipes the local cache, including changes that never reached the server.
-      const unsynced = outbox.filter((command) => command.status === "pending").length;
-      if (unsynced > 0 && typeof window !== "undefined" && !window.confirm(
-        `${unsynced} change${unsynced === 1 ? " has" : "s have"} not synced yet and will be lost if you sign out. Sign out anyway?`
-      )) return;
-      await api("/api/auth/logout", { method: "POST" });
+    // `all` also ends the user's sessions on other devices.
+    async signOut(options: { all?: boolean } = {}) {
+      await api("/api/auth/logout", { method: "POST", body: JSON.stringify({ all: options.all === true }) });
       const signedOutUserId = user?.id;
       clearLoadedLists();
       if (signedOutUserId) clearMetadataForUser(signedOutUserId);

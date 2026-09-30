@@ -84,3 +84,19 @@ test('the served pages run without any Content-Security-Policy violation', async
   expect(violations).toEqual([]);
   expect(alice.messages.filter((message) => message.startsWith('pageerror'))).toEqual([]);
 });
+
+test('signing out can end the sessions on every device', async ({ browser, request }) => {
+  const context = await browser.newContext();
+  await context.addCookies([{ name: 'smart_todos_session', value: 'carol-first-session', url: ORIGIN }]);
+  const page = await context.newPage();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Sign Out' }).locator('visible=true').first().click();
+  const dialog = page.getByRole('heading', { name: 'Sign out?' });
+  await expect(dialog).toBeVisible();
+  await page.getByLabel('Also sign out on all my other devices').check();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sign In to Get Started' })).toBeVisible();
+
+  const other = await request.get('/api/auth/session', { headers: { Cookie: 'smart_todos_session=carol-second-session' } });
+  expect((await other.json()).user).toBeNull();
+});

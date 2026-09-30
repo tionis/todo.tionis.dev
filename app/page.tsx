@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { useSignOut } from './components/SignOutDialog';
 import { db, type User } from "../lib/db";
 import { generateSlug, getListUrl, copyToClipboard } from "../lib/utils";
 import { canUserWrite, executeTransaction } from "../lib/transactions";
@@ -100,6 +101,7 @@ function LandingPage() {
 }
 
 function AuthenticatedApp({ user }: { user: User }) {
+  const { requestSignOut, dialog: signOutDialog } = useSignOut();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState<{show: boolean, list: any} | null>(null);
   const [showErrorModal, setShowErrorModal] = useState<{show: boolean, message: string} | null>(null);
@@ -287,6 +289,7 @@ function AuthenticatedApp({ user }: { user: User }) {
 
   return (
     <div className="font-mono min-h-screen p-4 sm:p-8 bg-gray-50 dark:bg-slate-900">
+      {signOutDialog}
       <div className="max-w-4xl mx-auto">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -315,7 +318,7 @@ function AuthenticatedApp({ user }: { user: User }) {
               New List
             </button>
             <button
-              onClick={() => db.auth.signOut()}
+              onClick={requestSignOut}
               className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
             >
               Sign Out
