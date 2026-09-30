@@ -25,10 +25,9 @@ it before larger changes.
 - `npm start` - production: one process serves `out/`, `/api/*` and the WebSockets
 - `npm test` - backend integration tests (`backend/*.test.mjs`) and unit tests
   (`tests/*.test.ts`); `npm run test:unit` runs only the latter
-- `npm run test:pwa:e2e` - builds without a backend URL, then runs Playwright (mock-backend
-  PWA suite plus the `sync` project against the real backend, `tests/sync-e2e-server.mjs`)
-   matrix against a mocked backend
-  (`tests/pwa-e2e-server.mjs`)
+- `npm run test:pwa:e2e` - builds without a backend URL, then runs the Playwright matrix
+  against a mocked backend (`tests/pwa-e2e-server.mjs`) plus the `sync` project against the
+  real backend with two signed-in members (`tests/sync-e2e-server.mjs`)
 - `npm run lint`
 
 On Eric's machine npm may be managed by mise; if plain `npm` is not found, use
