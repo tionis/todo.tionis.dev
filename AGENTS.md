@@ -25,7 +25,9 @@ it before larger changes.
 - `npm start` - production: one process serves `out/`, `/api/*` and the WebSockets
 - `npm test` - backend integration tests (`backend/*.test.mjs`) and unit tests
   (`tests/*.test.ts`); `npm run test:unit` runs only the latter
-- `npm run test:pwa:e2e` - builds without a backend URL, then runs Playwright matrix against a mocked backend
+- `npm run test:pwa:e2e` - builds without a backend URL, then runs Playwright (mock-backend
+  PWA suite plus the `sync` project against the real backend, `tests/sync-e2e-server.mjs`)
+   matrix against a mocked backend
   (`tests/pwa-e2e-server.mjs`)
 - `npm run lint`
 
@@ -79,7 +81,8 @@ before accepting document data. In the UI, use `canUserWrite` / `canUserView` fr
 - `app/components/TodoListView.tsx` - list page shell and todo lifecycle; sub-components are
   in `app/components/todo-list/`
 - `app/components/HashRouter.tsx` - hash-based routing (there is no `app/[slug]/`)
-- `lib/db.ts` - client data layer (see above)
+- `lib/db.ts` - client data layer (see above); `lib/db-storage.ts` (IndexedDB), `lib/db-api.ts`,
+  `lib/db-types.ts`; frame handling for the sync socket is in `shared/delta-sync.mjs`
 - `lib/todoTransactions.ts` - todo creation incl. classification (`createTodoTransactions`),
   deletion, classifier samples
 - `lib/classification.ts` - the local classifier
@@ -90,7 +93,8 @@ before accepting document data. In the UI, use `canUserWrite` / `canUserView` fr
   `NOT_HANDLED` when it does not recognise a request), shared helpers in
   `http-helpers.mjs` and `list-shape.mjs`, WebSockets in `realtime.mjs` (`/sync` sends the
   full document once, then `delta` headers + change chunks; `/events` dashboard pushes),
-  `idempotency.mjs` replays retried `Idempotency-Key` commands; `backend/documents.mjs` -
+  `idempotency.mjs` replays retried `Idempotency-Key` commands (scoped per user or anonymous
+  address); `test-support.mjs` starts the real server for route tests; `backend/documents.mjs` -
   document storage; `backend/document-validation.mjs` - document schema;
   `backend/scim.mjs` - SCIM 2.0 provisioning
 - `app/components/todo-list/` - pieces of the list UI split out of `TodoListView.tsx`
