@@ -188,4 +188,4 @@ PWA assets can be regenerated with `npm run generate-assets`. Icon generation re
 
 ## Content Security Policy
 
-The static export contains a few inline bootstrap scripts. `npm run build` hashes them into `out/csp-script-hashes.json`, and the backend lists those hashes in `script-src` instead of `'unsafe-inline'`. If the file is missing (for example when serving an unbuilt directory) the backend logs a warning and falls back to `'unsafe-inline'`. Styles still allow inline styles.
+The static export contains a few inline bootstrap scripts. `npm run build` hashes them into `out/csp-script-hashes.json`, and the backend lists those hashes in `script-src` instead of `'unsafe-inline'`. If the file is missing (for example when serving an unbuilt directory) the backend logs a warning and falls back to `'unsafe-inline'`. `style-src` is `'self'` only: the export ships its CSS as files and React sets element styles through the CSSOM, which the policy permits. A browser test (`tests/e2e/sync.spec.ts`) fails on any policy violation.

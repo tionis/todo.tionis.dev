@@ -21,7 +21,7 @@ export function securityHeaders(publicUrl, scriptHashes = []) {
     "object-src 'none'",
     `script-src 'self' ${scriptHashes.length ? scriptHashes.map((hash) => `'${hash}'`).join(" ") : "'unsafe-inline'"} 'wasm-unsafe-eval'`,
     "script-src-attr 'none'",
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self'",
     "worker-src 'self' blob:",
     ...(origin.protocol === "https:" ? ["upgrade-insecure-requests"] : []),
   ].join("; ");

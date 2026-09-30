@@ -40,3 +40,9 @@ test("allows only hashed inline scripts when the build provides hashes", () => {
   assert.match(headers["Content-Security-Policy"], /script-src 'self' 'sha256-abc\+\/=' 'wasm-unsafe-eval'/);
   assert.doesNotMatch(headers["Content-Security-Policy"], /script-src[^;]*'unsafe-inline'/);
 });
+
+test("does not allow inline styles or inline event handlers", () => {
+  const policy = securityHeaders("https://todo.example", ["sha256-abc="])["Content-Security-Policy"];
+  assert.match(policy, /style-src 'self';/);
+  assert.doesNotMatch(policy, /style-src[^;]*'unsafe-inline'/);
+});

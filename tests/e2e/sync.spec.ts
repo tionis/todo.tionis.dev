@@ -74,6 +74,12 @@ test('changes made offline merge and reach the other member after reconnecting',
 test('the served pages run without any Content-Security-Policy violation', async ({ browser }) => {
   const alice = await openList(await browser.newContext(), 'alice-e2e-session');
   await addTodo(alice.page, 'CSP check');
+  // Exercise the settings panel and the share dialog too: they render the most dynamic markup.
+  await alice.page.getByRole('button', { name: 'Share' }).locator('visible=true').first().click();
+  await expect(alice.page.getByPlaceholder('Search name, @username, group, or email')).toBeVisible();
+  await alice.page.keyboard.press('Escape');
+  await alice.page.getByRole('button', { name: 'Settings' }).locator('visible=true').first().click();
+  await expect(alice.page.getByText('Classifier', { exact: false }).first()).toBeVisible();
   const violations = alice.messages.filter((message) => /Content.Security.Policy|Refused to/i.test(message));
   expect(violations).toEqual([]);
   expect(alice.messages.filter((message) => message.startsWith('pageerror'))).toEqual([]);
