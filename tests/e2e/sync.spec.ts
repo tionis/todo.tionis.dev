@@ -63,11 +63,29 @@ test('changes made offline merge and reach the other member after reconnecting',
 
   await aliceContext.setOffline(true);
   await addTodo(alice.page, 'Offline apples');
+  await addTodo(alice.page, 'Offline plums');
+  // Both edits are in one queued upload: the newer full document supersedes the older command.
+  const queuedUploads = await alice.page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('smart-todos-automerge', 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const commands = await new Promise<Array<{ path: string; status: string }>>((resolve, reject) => {
+      const request = database.transaction('outbox', 'readonly').objectStore('outbox').getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    database.close();
+    return commands.filter((command) => command.path.endsWith('/document') && command.status === 'pending').length;
+  });
+  expect(queuedUploads).toBe(1);
   await addTodo(bob.page, 'Online pears');
   await expect(bob.page.getByText('Offline apples', { exact: true })).toHaveCount(0);
 
   await aliceContext.setOffline(false);
   await expect(bob.page.getByText('Offline apples', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(bob.page.getByText('Offline plums', { exact: true })).toBeVisible();
   await expect(alice.page.getByText('Online pears', { exact: true })).toBeVisible({ timeout: 20_000 });
 });
 

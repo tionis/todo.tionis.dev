@@ -51,13 +51,17 @@ export async function deleteOutboxCommand(id: string) {
   await withStore("outbox", "readwrite", (transaction) => transaction.objectStore("outbox").delete(id));
 }
 
-/** Stores the document and its upload command in one transaction, so neither exists without the other. */
-export async function putDocumentWithCommand(documentKey: string, bytes: Uint8Array, command: QueuedRequest) {
+/**
+ * Stores the document and its upload command in one transaction, so neither exists without
+ * the other. `supersededIds` are older queued uploads of the same document to drop.
+ */
+export async function putDocumentWithCommand(documentKey: string, bytes: Uint8Array, command: QueuedRequest, supersededIds: string[] = []) {
   const database = await openDocumentDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(["documents", "outbox"], "readwrite");
       transaction.objectStore("documents").put(bytes, documentKey);
+      for (const supersededId of supersededIds) transaction.objectStore("outbox").delete(supersededId);
       transaction.objectStore("outbox").put(command);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);

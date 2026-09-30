@@ -5,7 +5,7 @@ import * as Automerge from "@automerge/automerge/slim";
 import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
 import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mjs";
 import { userDisplayName } from "../shared/identity.mjs";
-import { deliveryDisposition, orderedPendingCommands, summarizeOutbox } from "../shared/offline-outbox.mjs";
+import { deliveryDisposition, orderedPendingCommands, summarizeOutbox, supersededDocumentUploads } from "../shared/offline-outbox.mjs";
 import { rankDirectoryEntries } from "../backend/directory-search.mjs";
 import { applySyncFrame, syncPayload } from "../shared/delta-sync.mjs";
 import { reconcileRemoteDocument } from "../shared/sync-policy.mjs";
@@ -94,7 +94,9 @@ async function persistDocumentUpload(listId: string, document: Automerge.Doc<Lis
     path: `/api/lists/${encodeURIComponent(listId)}/document`,
     body: { document: bytesToBase64(bytes) },
   });
-  await putDocumentWithCommand(documentCacheKey(listId), bytes, queued);
+  const superseded = supersededDocumentUploads(outbox, queued);
+  await putDocumentWithCommand(documentCacheKey(listId), bytes, queued, superseded);
+  outbox = outbox.filter((command) => !superseded.includes(command.id));
   outbox.push(queued);
   scheduleBackgroundSync();
   return queued;
