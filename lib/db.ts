@@ -18,36 +18,14 @@ import {
   withoutRedundantListContentDeletes,
 } from "../shared/transaction-routing.mjs";
 import { runTransactionPhases } from "../shared/transaction-phases.mjs";
+import { api, apiBase, base64ToBytes, bytesToBase64 } from "./db-api";
+import {
+  clearAllStoredData, deleteDocumentBytes, deleteOutboxCommand, putDocumentWithCommand, putOutboxCommand,
+  readDocumentBytes, readOutboxCommands, writeDocumentBytes,
+} from "./db-storage";
+import { type EntityName, type ListDocument, type ListState, type Operation, type QueuedRequest, type User } from "./db-types";
+export type { User } from "./db-types";
 
-export interface User { id: string; email?: string | null; name?: string | null; username?: string | null; active?: boolean }
-type EntityName = "todoLists" | "todos" | "sublists" | "todoClassifications" | "listMembers" | "pinnedLists";
-type Operation = { entity: EntityName; id: string; kind: "update" | "delete" | "link" | "unlink"; data?: Record<string, any>; links?: Record<string, string> };
-interface ListDocument { [key: string]: unknown; schemaVersion: 1; todos: Record<string, any>; categories: Record<string, any>; classifierHistory: Record<string, any> }
-interface ListState { metadata: any; document?: Automerge.Doc<ListDocument>; socket?: WebSocket; access?: "read" | "write"; serverHeads?: string[] }
-interface QueuedRequest {
-  id: string;
-  userId: string;
-  listId?: string;
-  method: "POST" | "PATCH" | "DELETE";
-  path: string;
-  body?: Record<string, any>;
-  createdAt: string;
-  status: "pending" | "rejected";
-  error?: string;
-}
-
-class ApiError extends Error {
-  status: number;
-  code?: string;
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-  }
-}
-
-const apiBase = (process.env.NEXT_PUBLIC_BACKEND_URL || "").replace(/\/$/, "");
 const MAX_DOCUMENT_BYTES = 2_000_000;
 const wasmReady = Automerge.initializeBase64Wasm(automergeWasmBase64);
 const listeners = new Set<() => void>();
@@ -75,13 +53,6 @@ function emit() { revision += 1; for (const listener of listeners) listener(); }
 function subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }
 function snapshot() { return revision; }
 
-async function api(path: string, init: RequestInit = {}) {
-  const response = await fetch(`${apiBase}${path}`, { credentials: "include", ...init, headers: { "Content-Type": "application/json", ...init.headers } });
-  const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(value.message || value.error || `Request failed (${response.status})`, response.status, value.error);
-  return value;
-}
-
 function cachedMetadata(key: string): any {
   if (typeof localStorage === "undefined") return null;
   try { return JSON.parse(localStorage.getItem(`smart-todos:${key}`) || "null"); } catch { return null; }
@@ -92,37 +63,9 @@ function listCacheKey(slug: string) { return scopedCacheKey("list", cacheScope()
 function documentCacheKey(listId: string) { return scopedCacheKey("document", cacheScope(), listId); }
 function directoryCacheKey(listId: string) { return scopedCacheKey("directory", cacheScope(), listId); }
 
-function openDocumentDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("smart-todos-automerge", 2);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains("documents")) request.result.createObjectStore("documents");
-      if (!request.result.objectStoreNames.contains("outbox")) request.result.createObjectStore("outbox", { keyPath: "id" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
 async function readOutbox(): Promise<QueuedRequest[]> {
-  if (typeof indexedDB === "undefined") return [];
-  const userId = user?.id || "anonymous";
-  const database = await openDocumentDatabase();
-  return new Promise<QueuedRequest[]>((resolve, reject) => {
-    const request = database.transaction("outbox", "readonly").objectStore("outbox").getAll();
-    request.onsuccess = () => resolve((request.result as QueuedRequest[]).filter((command) => command.userId === userId));
-    request.onerror = () => reject(request.error);
-  }).finally(() => database.close());
+  return readOutboxCommands(user?.id || "anonymous");
 }
-async function putOutboxCommand(command: QueuedRequest) {
-  if (typeof indexedDB === "undefined") return;
-  const database = await openDocumentDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = database.transaction("outbox", "readwrite").objectStore("outbox").put(command);
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  database.close();
-}
-
 function createQueuedRequest(command: Omit<QueuedRequest, "id" | "userId" | "createdAt" | "status">): QueuedRequest {
   if (outbox.length >= 1_000) throw new Error("Too many offline changes are waiting to synchronize");
   return {
@@ -151,71 +94,26 @@ async function persistDocumentUpload(listId: string, document: Automerge.Doc<Lis
     path: `/api/lists/${encodeURIComponent(listId)}/document`,
     body: { document: bytesToBase64(bytes) },
   });
-  const database = await openDocumentDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(["documents", "outbox"], "readwrite");
-    transaction.objectStore("documents").put(bytes, documentCacheKey(listId));
-    transaction.objectStore("outbox").put(queued);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  }).finally(() => database.close());
+  await putDocumentWithCommand(documentCacheKey(listId), bytes, queued);
   outbox.push(queued);
   scheduleBackgroundSync();
   return queued;
 }
-async function deleteOutboxCommand(id: string) {
-  if (typeof indexedDB === "undefined") return;
-  const database = await openDocumentDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = database.transaction("outbox", "readwrite").objectStore("outbox").delete(id);
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  database.close();
-}
 async function readLocalDocument(listId: string): Promise<Automerge.Doc<ListDocument> | undefined> {
-  if (typeof indexedDB === "undefined") return undefined;
-  const database = await openDocumentDatabase();
-  return new Promise<Automerge.Doc<ListDocument> | undefined>((resolve, reject) => {
-    const request = database.transaction("documents", "readonly").objectStore("documents").get(documentCacheKey(listId));
-    request.onsuccess = () => {
-      if (!request.result) return resolve(undefined);
-      const bytes = new Uint8Array(request.result);
-      resolve(bytes.byteLength <= MAX_DOCUMENT_BYTES ? Automerge.load<ListDocument>(bytes) : undefined);
-    };
-    request.onerror = () => reject(request.error);
-  }).finally(() => database.close());
+  const bytes = await readDocumentBytes(documentCacheKey(listId));
+  return bytes && bytes.byteLength <= MAX_DOCUMENT_BYTES ? Automerge.load<ListDocument>(bytes) : undefined;
 }
 async function writeLocalDocument(listId: string, document: Automerge.Doc<ListDocument>) {
   if (typeof indexedDB === "undefined") return;
   const bytes = Automerge.save(document);
   if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to store or synchronize safely");
-  const database = await openDocumentDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = database.transaction("documents", "readwrite").objectStore("documents").put(bytes, documentCacheKey(listId));
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  database.close();
+  await writeDocumentBytes(documentCacheKey(listId), bytes);
 }
 async function deleteLocalDocument(listId: string) {
-  if (typeof indexedDB === "undefined") return;
-  const database = await openDocumentDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = database.transaction("documents", "readwrite").objectStore("documents").delete(documentCacheKey(listId));
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  database.close();
+  await deleteDocumentBytes(documentCacheKey(listId));
 }
 async function clearLocalDocuments() {
-  if (typeof indexedDB === "undefined") return;
-  const database = await openDocumentDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(["documents", "outbox"], "readwrite");
-    transaction.objectStore("documents").clear();
-    const request = transaction.objectStore("outbox").clear();
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  database.close();
+  await clearAllStoredData();
 }
 function clearMetadataForUser(userId: string) {
   if (typeof localStorage === "undefined") return;
@@ -242,7 +140,6 @@ function clearLoadedLists() {
   outboxLoaded = false;
 }
 function emptyDocument() { return Automerge.from<ListDocument>({ schemaVersion: 1, todos: {}, categories: {}, classifierHistory: {} }); }
-function base64ToBytes(value: string) { const binary = atob(value); return Uint8Array.from(binary, (character) => character.charCodeAt(0)); }
 
 function websocketUrl(listId: string) {
   const base = new URL(apiBase || window.location.origin, window.location.origin);
@@ -667,7 +564,6 @@ function applyContentOperations(document: Automerge.Doc<ListDocument>, operation
     applyContentOperationsToDraft(draft, operations);
   });
 }
-function bytesToBase64(bytes: Uint8Array) { let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary); }
 
 function findStateForEntity(entity: "listMembers" | "pinnedLists", id: string) {
   return [...lists.values()].find((state) => state.metadata[entity === "listMembers" ? "members" : "pins"]?.some((item: any) => item.id === id));
