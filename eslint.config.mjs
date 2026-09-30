@@ -42,4 +42,10 @@ export default tseslint.config(
       "preserve-caught-error": "off",
     },
   },
+  {
+    // Ratchet: these files are free of `any`; keep them that way and extend the list as
+    // other files are cleaned up.
+    files: ["lib/transactions.ts", "lib/db-api.ts", "lib/db-storage.ts", "shared/*.mjs"],
+    rules: { "@typescript-eslint/no-explicit-any": "error" },
+  },
 );

@@ -53,7 +53,7 @@ function emit() { revision += 1; for (const listener of listeners) listener(); }
 function subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); }
 function snapshot() { return revision; }
 
-function cachedMetadata(key: string): any {
+function cachedMetadata<T = any>(key: string): T | null {
   if (typeof localStorage === "undefined") return null;
   try { return JSON.parse(localStorage.getItem(`smart-todos:${key}`) || "null"); } catch { return null; }
 }

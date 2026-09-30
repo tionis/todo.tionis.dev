@@ -1,11 +1,19 @@
 import { db } from './db';
 import { id } from './id';
 
+/** The parts of a user and list that permission checks read. */
+interface PermissionUser { id: string }
+interface PermissionList {
+  access?: { read?: boolean; write?: boolean };
+  owner?: { id?: string } | null;
+  members?: Array<{ user?: { id?: string } | null }>;
+}
+
 /**
  * Execute a database transaction with error handling and optional toast notifications
  */
 export async function executeTransaction(
-  transaction: any,
+  transaction: unknown,
   errorMessage: string = "Operation failed",
   _showToast: boolean = false
 ): Promise<boolean> {
@@ -22,7 +30,7 @@ export async function executeTransaction(
 /**
  * Handle common UI state for async operations
  */
-export function createAsyncHandler<T extends any[]>(
+export function createAsyncHandler<T extends unknown[]>(
   operation: (...args: T) => Promise<boolean>,
   setError?: (error: string | null) => void,
   setLoading?: (loading: boolean) => void,
@@ -48,15 +56,16 @@ export function createAsyncHandler<T extends any[]>(
  * Common permission checks
  */
 export function canUserWrite(
-  user: any,
-  list: any,
+  user: PermissionUser | null | undefined,
+  list: PermissionList,
   permission: string
 ): boolean {
-  if (typeof list.access?.write === "boolean") return list.access.write;
+  const explicitWrite = list.access?.write;
+  if (typeof explicitWrite === "boolean") return explicitWrite;
   if (!user) return permission === 'public-write';
   
   const isOwner = list.owner?.id === user.id;
-  const isMember = list.members?.some((m: any) => m.user?.id === user.id);
+  const isMember = list.members?.some((member) => member.user?.id === user.id) ?? false;
   
   switch (permission) {
     case 'public-write':
@@ -74,11 +83,12 @@ export function canUserWrite(
  * Common permission checks for viewing
  */
 export function canUserView(
-  user: any,
-  list: any,
+  user: PermissionUser | null | undefined,
+  list: PermissionList,
   permission: string
 ): boolean {
-  if (typeof list.access?.read === "boolean") return list.access.read;
+  const explicitRead = list.access?.read;
+  if (typeof explicitRead === "boolean") return explicitRead;
   if (permission === 'public-read' || permission === 'public-write') {
     return true;
   }
@@ -86,7 +96,7 @@ export function canUserView(
   if (!user) return false;
   
   const isOwner = list.owner?.id === user.id;
-  const isMember = list.members?.some((m: any) => m.user?.id === user.id);
+  const isMember = list.members?.some((member) => member.user?.id === user.id) ?? false;
   
   return isOwner || isMember;
 }
