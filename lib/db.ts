@@ -7,6 +7,7 @@ import { mayUseOfflineFallback, scopedCacheKey } from "../shared/cache-policy.mj
 import { userDisplayName } from "../shared/identity.mjs";
 import { deliveryDisposition, orderedPendingCommands, summarizeOutbox } from "../shared/offline-outbox.mjs";
 import { rankDirectoryEntries } from "../backend/directory-search.mjs";
+import { applySyncFrame, syncPayload } from "../shared/delta-sync.mjs";
 import { reconcileRemoteDocument } from "../shared/sync-policy.mjs";
 import {
   applyContentOperationsToDraft,
@@ -272,13 +273,6 @@ function connectEvents() {
     if (user) setTimeout(connectEvents, 2_000);
   };
 }
-// Send only what the server lacks; fall back to the whole document when its heads are unknown.
-function syncPayload(state: ListState, document: Automerge.Doc<ListDocument>) {
-  if (state.serverHeads) {
-    try { return Automerge.saveSince(document, state.serverHeads); } catch { /* unknown heads: send everything */ }
-  }
-  return Automerge.save(document);
-}
 function connectList(listId: string) {
   const state = lists.get(listId);
   if (!state || state.socket || state.metadata._localOnly || state.metadata._deleted || typeof WebSocket === "undefined") return;
@@ -313,28 +307,20 @@ function connectList(listId: string) {
     pendingDelta = undefined;
     await applyServerState(remoteBytes, delta?.heads, !!delta);
   };
-  // `remoteBytes` is a full document, or (when `incremental`) only the changes since the last frame.
   const applyServerState = async (remoteBytes: Uint8Array | undefined, remoteHeads?: string[], incremental = false) => {
-    let document: Automerge.Doc<ListDocument>;
-    let shouldUpload: boolean;
-    if (incremental || !remoteBytes) {
-      const local = state.document || emptyDocument();
-      document = remoteBytes ? Automerge.loadIncremental<ListDocument>(local, remoteBytes) : local;
-      const heads = [...(remoteHeads || [])].sort();
-      const own = [...Automerge.getHeads(document)].sort();
-      shouldUpload = state.access === "write" && !(heads.length === own.length && heads.every((head, index) => head === own[index]));
-    } else {
-      const remote = Automerge.load<ListDocument>(remoteBytes);
-      const reconciled = reconcileRemoteDocument(Automerge, state.document, remote, state.access);
-      document = reconciled.document;
-      shouldUpload = reconciled.shouldUpload;
-      remoteHeads = Automerge.getHeads(remote);
-    }
-    state.serverHeads = remoteHeads;
-    await writeLocalDocument(listId, document);
-    state.document = document;
-    if (shouldUpload && socket.readyState === WebSocket.OPEN) {
-      const bytes = syncPayload(state, document);
+    const applied = applySyncFrame(
+      Automerge,
+      state.document,
+      incremental || !remoteBytes
+        ? { kind: "delta", bytes: remoteBytes, heads: remoteHeads || [] }
+        : { kind: "full", bytes: remoteBytes },
+      state.access,
+    ) as { document: Automerge.Doc<ListDocument>; shouldUpload: boolean; serverHeads: string[] };
+    state.serverHeads = applied.serverHeads;
+    await writeLocalDocument(listId, applied.document);
+    state.document = applied.document;
+    if (applied.shouldUpload && socket.readyState === WebSocket.OPEN) {
+      const bytes = syncPayload(Automerge, applied.document, state.serverHeads);
       if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
       socket.send(bytes);
     }
@@ -810,7 +796,7 @@ async function transact(input: any) {
         state.document = nextDocument;
         if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") {
           try {
-            state.socket.send(syncPayload(state, nextDocument));
+            state.socket.send(syncPayload(Automerge, nextDocument, state.serverHeads));
           } catch {
             state.socket.close(1011, "Sync retry required");
           }
