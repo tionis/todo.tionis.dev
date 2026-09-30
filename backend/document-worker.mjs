@@ -12,6 +12,16 @@ function validate(document) {
   validateListDocument(document);
 }
 
+// Every Automerge document or change chunk starts with these four bytes. loadIncremental
+// silently ignores data it cannot parse, so reject anything else up front.
+const AUTOMERGE_MAGIC = [0x85, 0x6f, 0x4a, 0x83];
+
+function assertAutomergeChunk(bytes) {
+  if (!AUTOMERGE_MAGIC.every((byte, index) => bytes[index] === byte)) {
+    throw new Error("Not an Automerge document or change");
+  }
+}
+
 function load(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength > MAX_DOCUMENT_BYTES) {
     throw new Error("Automerge document is too large");
@@ -38,6 +48,7 @@ parentPort.on("message", ({ action, currentBytes, incomingBytes, resetAt }) => {
       if (!(incomingBytes instanceof Uint8Array) || incomingBytes.byteLength > MAX_DOCUMENT_BYTES) {
         throw new Error("Automerge document is too large");
       }
+      assertAutomergeChunk(incomingBytes);
       headsBefore = Automerge.getHeads(current);
       document = Automerge.loadIncremental(current, incomingBytes);
     } else if (action === "reset") {
