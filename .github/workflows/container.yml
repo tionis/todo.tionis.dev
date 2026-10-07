@@ -89,6 +89,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # The deploy step proves the repository and branch to Gandalf with it.
+      id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -116,6 +118,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and publish image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -126,3 +129,12 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Runs the pushed digest on Citadel through the Gandalf app platform; the node
+      # rolls back if the app does not become healthy, which fails this step.
+      - name: Deploy through Gandalf
+        if: github.ref == 'refs/heads/main'
+        uses: tionis/app-deploy@512afe26ca53c27e76267877f746877738947beb
+        with:
+          service: todo
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
