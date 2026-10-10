@@ -134,7 +134,7 @@ jobs:
       # rolls back if the app does not become healthy, which fails this step.
       - name: Deploy through Gandalf
         if: github.ref == 'refs/heads/main'
-        uses: tionis/app-deploy@512afe26ca53c27e76267877f746877738947beb
+        uses: tionis/app-deploy@082b7d14b83de7b7d83225408b688597fbe3d37b
         with:
           service: todo
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
