@@ -174,3 +174,15 @@ test('categories can be grouped and restock items are flagged, shared and hidden
   await alice.page.getByRole('button', { name: 'Collapse EDEKA' }).click();
   await expect(alice.page.getByRole('button', { name: 'Collapse Drogerie' })).toBeHidden();
 });
+
+test('typing the next item while the previous one is still saving keeps both', async ({ browser }) => {
+  const alice = await openList(await browser.newContext(), 'alice-e2e-session');
+  const input = alice.page.getByPlaceholder('What needs to be done?');
+  for (const text of ['Hafermilch', 'Linsen', 'Kichererbsen']) {
+    await input.fill(text);
+    await input.press('Enter');
+  }
+  for (const text of ['Hafermilch', 'Linsen', 'Kichererbsen']) {
+    await expect(alice.page.getByText(text, { exact: true })).toBeVisible();
+  }
+});

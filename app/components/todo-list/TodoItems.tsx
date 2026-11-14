@@ -48,6 +48,11 @@ export function TodoForm({
       undefined,
       { later },
     );
+    // Clear at once: saving waits for the upload, and whatever is typed meanwhile is the
+    // next item, which clearing on success would wipe.
+    setText("");
+    setLater(false);
+    setError(null);
 
     db.transact(transactions).then(() => {
       if (classification) {
@@ -62,11 +67,9 @@ export function TodoForm({
           addToast(`Suggested category: ${sublist.name}`, "info");
         }
       }
-      setText("");
-      setLater(false);
-      setError(null);
     }).catch(err => {
       console.error("Failed to create todo:", err);
+      setText((current) => current || trimmedText);
       setError("Failed to create todo. Please try again.");
     });
   };

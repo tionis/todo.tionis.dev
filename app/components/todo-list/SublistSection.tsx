@@ -446,20 +446,22 @@ export function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublis
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return;
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
 
     const { transactions } = createTodoTransactions(
       todoList,
-      text.trim(),
+      trimmedText,
       sublist?.id,
       "quick-add",
     );
+    // Cleared at once, not on success: see TodoForm.
+    setText("");
+    setError(null);
 
-    db.transact(transactions).then(() => {
-      setText("");
-      setError(null);
-    }).catch(err => {
+    db.transact(transactions).catch(err => {
       console.error("Failed to create todo:", err);
+      setText((current) => current || trimmedText);
       setError("Failed to create todo. Please try again.");
     });
   };
