@@ -85,17 +85,17 @@ test("the replay only shows a method what happened before each event", async () 
   assert.equal(report.outcome.abstained, checked);
 });
 
-test("lookup-first follows an item that moved where the current classifier still trusts old checks", async () => {
+test("after a manual move both the current classifier and lookup-first follow the item", async () => {
   const data = smallList();
   const events = labelEvents(data);
   const checkAfterMove = events.at(-1)!;
   const context = contextAt(data, events, checkAfterMove.at);
-  assert.equal((currentMethod.predict("Tahini", context) as { categoryId: string }).categoryId, "edeka");
+  assert.equal((currentMethod.predict("Tahini", context) as { categoryId: string }).categoryId, "trocken");
   assert.equal((lookupFirst(currentMethod).predict("Tahini", context) as { categoryId: string }).categoryId, "trocken");
 
   const [current, lookup] = await replay(fixture, [currentMethod, lookupFirst(currentMethod)]);
-  assert.ok(lookup.outcome.autoCorrect > current.outcome.autoCorrect);
-  assert.ok(lookup.outcome.autoWrong < current.outcome.autoWrong);
+  // The synthetic list's moved items no longer trip the current classifier up.
+  assert.deepEqual(lookup.outcome, current.outcome);
 });
 
 test("naive Bayes sorts unseen variants of known items and is unsure about strangers", () => {

@@ -376,7 +376,9 @@ function buildClassifierModel(
 
     if (source === "negative") {
       negativeExamples.push(example);
-    } else if (source === "checked") {
+    } else if (source === "checked" || source === "manual-move") {
+      // A move by hand is as deliberate as a check-off: whichever is newer decides, so moving an
+      // item overrides the category it used to be checked off in.
       setLatestExample(completedExamplesByText, example);
     } else if (source !== "auto") {
       setLatestExample(fallbackExamplesByText, example);

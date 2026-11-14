@@ -106,7 +106,8 @@ before accepting document data. In the UI, use `canUserWrite` / `canUserView` fr
 The classifier is local and deterministic; it never calls a remote model. Rules live in
 `lib/classification.ts`:
 
-- training prefers the latest checked occurrence per normalized item text
+- training prefers the latest checked or manually moved occurrence per normalized item text,
+  so moving an item overrides where it used to be checked off
 - checking a categorized todo records a `checked` sample
 - moving an item by hand records a positive `manual-move` sample for the new category and
   a `negative` one for the old category
