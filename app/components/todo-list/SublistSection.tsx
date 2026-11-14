@@ -14,7 +14,9 @@ export function SublistSection({
   canWrite, 
   isOwner,
   toggleTodo,
-  deleteTodo
+  deleteTodo,
+  collapsed,
+  onToggleCollapsed
 }: { 
   sublist: Sublist; 
   todoList: TodoList; 
@@ -22,6 +24,8 @@ export function SublistSection({
   isOwner: boolean;
   toggleTodo: (todo: Todo) => void;
   deleteTodo: (todo: Todo) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const [showCompletedInSublist, setShowCompletedInSublist] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -99,7 +103,13 @@ export function SublistSection({
         ref={setNodeRef}
         className={`bg-gray-50 dark:bg-gray-700 px-3 py-2 flex items-center justify-between group transition-colors ${isOver ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600' : ''}`}
       >
-        <div className="flex items-center space-x-2 flex-1">
+        <div className="flex items-center space-x-2 flex-1 min-w-0">
+          <CollapseToggle
+            collapsed={collapsed}
+            onToggle={onToggleCollapsed}
+            label={sublist.name}
+            controls={`sublist-content-${sublist.id}`}
+          />
           {editingName ? (
             <input
               type="text"
@@ -149,35 +159,39 @@ export function SublistSection({
           </button>
         )}
       </div>
-      {visibleTodos.length > 0 && (
-        <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={sublist.id} />
-      )}
-      {todoList.hideCompleted && !showCompletedInSublist && completedTodos.length > 0 && (
-        <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
-          <button
-            onClick={() => setShowCompletedInSublist(true)}
-            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
-          >
-            <span>▼</span>
-            <span>Show {completedTodos.length} completed item{completedTodos.length !== 1 ? 's' : ''}</span>
-          </button>
-        </div>
-      )}
-      {todoList.hideCompleted && showCompletedInSublist && completedTodos.length > 0 && (
-        <div>
+      {!collapsed && (
+        <div id={`sublist-content-${sublist.id}`}>
+        {visibleTodos.length > 0 && (
+          <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={sublist.id} />
+        )}
+        {todoList.hideCompleted && !showCompletedInSublist && completedTodos.length > 0 && (
           <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
             <button
-              onClick={() => setShowCompletedInSublist(false)}
+              onClick={() => setShowCompletedInSublist(true)}
               className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
             >
-              <span>▲</span>
-              <span>Hide completed items</span>
+              <span>▼</span>
+              <span>Show {completedTodos.length} completed item{completedTodos.length !== 1 ? 's' : ''}</span>
             </button>
           </div>
-          <TodoListComponent todos={completedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={sublist.id} />
+        )}
+        {todoList.hideCompleted && showCompletedInSublist && completedTodos.length > 0 && (
+          <div>
+            <div className="px-3 py-2 border-b border-gray-300 dark:border-gray-600">
+              <button
+                onClick={() => setShowCompletedInSublist(false)}
+                className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center space-x-1"
+              >
+                <span>▲</span>
+                <span>Hide completed items</span>
+              </button>
+            </div>
+            <TodoListComponent todos={completedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={sublist.id} />
+          </div>
+        )}
+        {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
         </div>
       )}
-      {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
       
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
@@ -208,6 +222,40 @@ export function SublistSection({
         </div>
       )}
     </div>
+  );
+}
+
+export function CollapseToggle({
+  collapsed,
+  onToggle,
+  label,
+  controls
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  label: string;
+  controls: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-controls={controls}
+      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
+      title={collapsed ? 'Expand category' : 'Collapse category'}
+      className="shrink-0 w-7 h-7 -ml-1 flex items-center justify-center rounded text-gray-500 hover:text-gray-800 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-600 touch-manipulation"
+      style={{ WebkitTapHighlightColor: 'transparent' }}
+    >
+      <svg
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+        className={`w-4 h-4 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+      >
+        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.06l3.71-3.83a.75.75 0 1 1 1.08 1.04l-4.25 4.39a.75.75 0 0 1-1.08 0L5.21 8.27a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+      </svg>
+    </button>
   );
 }
 

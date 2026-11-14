@@ -7,7 +7,8 @@ import { db } from '../../../lib/db';
 import { createClassificationTransaction } from '../../../lib/todoTransactions';
 import { useToast } from '../Toast';
 import type { Todo, Sublist, TodoList } from './types';
-import { ActionBar, AddSublistForm, SublistSection } from './SublistSection';
+import { ActionBar, AddSublistForm, CollapseToggle, SublistSection } from './SublistSection';
+import { UNCATEGORIZED_SECTION_ID, useCollapsedCategories } from '../../../lib/collapsedCategories';
 import { TodoForm, TodoListComponent } from './TodoItems';
 
 export function DroppableUncategorizedSection({
@@ -19,7 +20,9 @@ export function DroppableUncategorizedSection({
   canWrite,
   toggleTodo,
   deleteTodo,
-  todoList
+  todoList,
+  collapsed,
+  onToggleCollapsed
 }: {
   visibleTodos: Todo[];
   todosWithoutSublist: Todo[];
@@ -30,6 +33,8 @@ export function DroppableUncategorizedSection({
   toggleTodo: (todo: Todo) => void;
   deleteTodo: (todo: Todo) => void;
   todoList: TodoList;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id: 'sublist-uncategorized',
@@ -39,12 +44,22 @@ export function DroppableUncategorizedSection({
     <div>
       <div 
         ref={setNodeRef}
-        className={`bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white transition-colors ${isOver ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600' : ''}`}
+        className={`bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm font-medium border-b border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white transition-colors flex items-center space-x-2 ${isOver ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600' : ''}`}
       >
+        <CollapseToggle
+          collapsed={collapsed}
+          onToggle={onToggleCollapsed}
+          label="Uncategorized"
+          controls="sublist-content-uncategorized"
+        />
+        <span>
         Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
         {canWrite && isOver && <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">(Drop here)</span>}
         {canWrite && !isOver && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(Drop todos here)</span>}
+        </span>
       </div>
+      {!collapsed && (
+      <div id="sublist-content-uncategorized">
       {visibleTodos.length > 0 && (
         <TodoListComponent todos={visibleTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={undefined} />
       )}
@@ -72,6 +87,8 @@ export function DroppableUncategorizedSection({
           </div>
           <TodoListComponent todos={completedUncategorizedTodos} canWrite={canWrite} toggleTodo={toggleTodo} deleteTodo={deleteTodo} sublistId={undefined} />
         </div>
+      )}
+      </div>
       )}
     </div>
   );
@@ -107,6 +124,7 @@ export function GlobalDragWrapper({
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const { addToast } = useToast();
+  const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(todoList.id);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -272,6 +290,8 @@ export function GlobalDragWrapper({
             isOwner={isOwner}
             toggleTodo={toggleTodo}
             deleteTodo={deleteTodo}
+            collapsed={collapsed.has(sublist.id)}
+            onToggleCollapsed={() => toggleCollapsed(sublist.id)}
           />
         ))}
 
@@ -290,6 +310,8 @@ export function GlobalDragWrapper({
             toggleTodo={toggleTodo}
             deleteTodo={deleteTodo}
             todoList={todoList}
+            collapsed={collapsed.has(UNCATEGORIZED_SECTION_ID)}
+            onToggleCollapsed={() => toggleCollapsed(UNCATEGORIZED_SECTION_ID)}
           />
         )}
         

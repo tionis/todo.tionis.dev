@@ -118,3 +118,30 @@ test('signing out can end the sessions on every device', async ({ browser, reque
   const other = await request.get('/api/auth/session', { headers: { Cookie: 'smart_todos_session=carol-second-session' } });
   expect((await other.json()).user).toBeNull();
 });
+
+test('collapsing a category hides its items on this device only and survives a reload', async ({ browser }) => {
+  const alice = await openList(await browser.newContext(), 'alice-e2e-session');
+  const bob = await openList(await browser.newContext(), 'bob-e2e-session');
+
+  await alice.page.getByRole('button', { name: '+ Add Category' }).click();
+  await alice.page.getByPlaceholder('Category name').fill('Bakery');
+  await alice.page.getByPlaceholder('Category name').press('Enter');
+  const bakeryContentId = await alice.page.getByRole('button', { name: 'Collapse Bakery' }).getAttribute('aria-controls');
+  const quickAdd = alice.page.locator(`[id="${bakeryContentId}"]`).getByPlaceholder('Add item...');
+  await quickAdd.fill('Sourdough');
+  await quickAdd.press('Enter');
+  await expect(alice.page.getByText('Sourdough', { exact: true })).toBeVisible();
+  await expect(bob.page.getByText('Sourdough', { exact: true })).toBeVisible();
+
+  await alice.page.getByRole('button', { name: 'Collapse Bakery' }).click();
+  await expect(alice.page.getByText('Sourdough', { exact: true })).toBeHidden();
+  await expect(alice.page.getByRole('button', { name: 'Expand Bakery' })).toHaveAttribute('aria-expanded', 'false');
+
+  await alice.page.reload();
+  await expect(alice.page.getByRole('button', { name: 'Expand Bakery' })).toBeVisible();
+  await expect(alice.page.getByText('Sourdough', { exact: true })).toBeHidden();
+  await expect(bob.page.getByText('Sourdough', { exact: true })).toBeVisible();
+
+  await alice.page.getByRole('button', { name: 'Expand Bakery' }).click();
+  await expect(alice.page.getByText('Sourdough', { exact: true })).toBeVisible();
+});
