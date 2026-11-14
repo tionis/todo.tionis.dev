@@ -52,3 +52,6 @@ next-env.d.ts
 
 # Agent stuff
 /.claude/
+
+# Real list exports used for the classifier evaluation
+smart-todos-*.json

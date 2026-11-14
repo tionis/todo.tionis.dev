@@ -225,4 +225,21 @@ category names to AIMLAPI/TypeSafe**. It needs `AIMLAPI_KEY`; `JEV_MODEL` (defau
 optional. Requests run one at a time, are capped by `--max-requests` (default 300) and cached
 in `.cache/jev/`. This is evaluation only: the app's classifier never calls a remote model.
 
-`tests/fixtures/classifier-eval-list.json` is a synthetic list for trying it out.
+`llm` and `embed` (plus `llm-fallback` and `embed-fallback`) use OpenAI-compatible APIs
+(`lib/classifier-eval-models.ts`), so they **send item texts and category names to that
+server**:
+
+- `llm` is the same kind of decision with a chat model: the categories become lettered options
+  and the first answer token's log probabilities give a probability per option. Answers that
+  come back without log probabilities only count as suggestions.
+- `embed` embeds every distinct item text and category name once and sorts a new item where its
+  most similar earlier items went (a weighted vote of the ten nearest).
+
+They default to OpenRouter (`OPENROUTER_API_KEY`, models `openai/gpt-4.1-nano` and
+`openai/text-embedding-3-small`); `LLM_BASE_URL` / `EMBED_BASE_URL`, `LLM_MODEL` / `EMBED_MODEL`
+and `LLM_API_KEY` / `EMBED_API_KEY` point them elsewhere, e.g. a local Ollama
+(`http://localhost:11434/v1`) or an OpenAI-compatible embedding proxy. Responses are cached in
+`.cache/llm/` and `.cache/embed/`. The script also reads these variables from `.env.eval`.
+
+`tests/fixtures/classifier-eval-list.json` is a synthetic list for trying it out. Real exports
+(`smart-todos-*.json`) are gitignored.
