@@ -66,6 +66,8 @@ interface ApiOptions {
   thresholds?: Thresholds;
 }
 
+const MAX_FAILURES_IN_A_ROW = 5;
+
 function newStats(): ModelStats {
   return { requests: 0, cached: 0, skipped: 0, failed: 0, usdSpent: 0, withoutLogprobs: 0 };
 }
@@ -75,13 +77,15 @@ function client(options: ApiOptions, stats: ModelStats) {
   const doFetch = options.fetch ?? fetch;
   const maxRequests = options.maxRequests ?? 300;
   let queue: Promise<unknown> = Promise.resolve();
+  let failuresInARow = 0;
   return async function post<T>(endpoint: string, body: unknown): Promise<T | undefined> {
     const cached = await options.cache?.get({ endpoint, body });
     if (cached !== undefined) {
       stats.cached += 1;
       return cached as T;
     }
-    if (stats.requests >= maxRequests) {
+    // A request cap, and no more requests once the server keeps refusing them.
+    if (stats.requests >= maxRequests || failuresInARow >= MAX_FAILURES_IN_A_ROW) {
       stats.skipped += 1;
       return undefined;
     }
@@ -101,13 +105,16 @@ function client(options: ApiOptions, stats: ModelStats) {
     queue = run.catch(() => undefined);
     try {
       const response = await run;
+      failuresInARow = 0;
       const cost = (response as { usage?: { cost?: number } })?.usage?.cost;
       if (typeof cost === "number") stats.usdSpent += cost;
       await options.cache?.set({ endpoint, body }, response);
       return response;
     } catch (error) {
       stats.failed += 1;
+      failuresInARow += 1;
       if (stats.failed <= 3) console.error(String(error));
+      if (failuresInARow === MAX_FAILURES_IN_A_ROW) console.error(`${endpoint}: ${MAX_FAILURES_IN_A_ROW} failures in a row, no more requests.`);
       return undefined;
     }
   };
@@ -121,7 +128,8 @@ function withThresholds(categoryId: string, confidence: number, thresholds: Thre
 // --- Jev-style choice with a chat model --------------------------------------------------------
 
 export const DEFAULT_LLM_THRESHOLDS: Thresholds = { auto: 0.8, suggest: 0.5 };
-export const DEFAULT_LLM_MODEL = "openai/gpt-4.1-nano";
+// On OpenRouter, gpt-4.1-nano is served by providers that drop logprobs; gpt-4o-mini by OpenAI keeps them.
+export const DEFAULT_LLM_MODEL = "openai/gpt-4o-mini";
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /** The chat request: the same option descriptions as the Jev request, lettered. */

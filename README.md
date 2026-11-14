@@ -235,7 +235,7 @@ server**:
 - `embed` embeds every distinct item text and category name once and sorts a new item where its
   most similar earlier items went (a weighted vote of the ten nearest).
 
-They default to OpenRouter (`OPENROUTER_API_KEY`, models `openai/gpt-4.1-nano` and
+They default to OpenRouter (`OPENROUTER_API_KEY`, models `openai/gpt-4o-mini`, whose OpenRouter provider returns log probabilities, and
 `openai/text-embedding-3-small`); `LLM_BASE_URL` / `EMBED_BASE_URL`, `LLM_MODEL` / `EMBED_MODEL`
 and `LLM_API_KEY` / `EMBED_API_KEY` point them elsewhere, e.g. a local Ollama
 (`http://localhost:11434/v1`) or an OpenAI-compatible embedding proxy. Responses are cached in
