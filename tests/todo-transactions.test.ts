@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createClassificationTransaction,
   createTodoDeleteTransactions,
+  createCategoryToRestockTransactions,
   createTodoTransaction,
 } from "../lib/todoTransactions";
 import { db } from "../lib/db";
@@ -79,4 +80,56 @@ test("checking a categorized todo updates it and records classifier history toge
   const sample = Object.values(document.classifierHistory)[0];
   assert.equal(sample.source, "checked");
   assert.equal(sample.categoryId, "dairy");
+});
+
+test("new todos can be marked as restock items", () => {
+  const document = { schemaVersion: 1, todos: {} as Record<string, any>, categories: {}, classifierHistory: {} };
+  applyContentOperationsToDraft(document, operations([createTodoTransaction("list-1", "Spülmittel", 1, undefined, true), createTodoTransaction("list-1", "Milch", 2)]));
+  const todos = Object.values(document.todos);
+  assert.equal(todos.find((todo) => todo.text === "Spülmittel").later, true);
+  assert.equal("later" in todos.find((todo) => todo.text === "Milch"), false);
+});
+
+test("converting a category to restock flags its items, sorts what the classifier knows and removes the category", () => {
+  const sublists = [
+    { id: "obst", name: "Obst" },
+    { id: "drogerie", name: "Drogerie" },
+    { id: "nachfuellen", name: "Nachfüllen" },
+  ];
+  const sublist = (id: string) => sublists.find((item) => item.id === id);
+  const checked = (text: string, category: string) => ({ text, done: true, sublist: sublist(category), createdAt: "2026-01-01T00:00:00Z" });
+  const todoList = {
+    id: "list-1",
+    autoSortTodos: true,
+    sublists,
+    todos: [
+      checked("Äpfel", "obst"), checked("Bananen", "obst"), checked("Birnen", "obst"),
+      checked("Zahnpasta", "drogerie"), checked("Spülmittel", "drogerie"), checked("Duschgel", "drogerie"),
+      { id: "a", text: "Spülmittel", done: false, sublist: sublist("nachfuellen") },
+      { id: "b", text: "Batterien", done: false, sublist: sublist("nachfuellen") },
+      { id: "c", text: "Äpfel", done: false, sublist: sublist("obst") },
+    ],
+    todoClassifications: [{ id: "s1", text: "Spülmittel", source: "manual-move", sublist: sublist("nachfuellen") }],
+  };
+  const result = createCategoryToRestockTransactions(todoList, "nachfuellen");
+  assert.equal(result.sorted, 1);
+  assert.equal(result.unsorted, 1);
+
+  const document = {
+    schemaVersion: 1,
+    todos: {
+      a: { id: "a", text: "Spülmittel", done: false, categoryId: "nachfuellen" },
+      b: { id: "b", text: "Batterien", done: false, categoryId: "nachfuellen" },
+      c: { id: "c", text: "Äpfel", done: false, categoryId: "obst" },
+    } as Record<string, any>,
+    categories: { obst: { id: "obst" }, drogerie: { id: "drogerie" }, nachfuellen: { id: "nachfuellen" } } as Record<string, any>,
+    classifierHistory: { s1: { id: "s1", categoryId: "nachfuellen" } } as Record<string, any>,
+  };
+  applyContentOperationsToDraft(document, operations(result.transactions));
+  assert.deepEqual(document.todos.a, { id: "a", text: "Spülmittel", done: false, categoryId: "drogerie", later: true, updatedAt: document.todos.a.updatedAt });
+  assert.equal(document.todos.b.later, true);
+  assert.equal("categoryId" in document.todos.b, false);
+  assert.equal("later" in document.todos.c, false);
+  assert.equal(document.categories.nachfuellen, undefined);
+  assert.equal(document.classifierHistory.s1, undefined);
 });

@@ -55,6 +55,20 @@ test("rejects malformed initial documents before persistence", async () => {
   }
 });
 
+test("accepts category groups and restock flags, and rejects malformed ones", () => {
+  const valid = Automerge.from({
+    schemaVersion: 1,
+    todos: { item: { id: "item", text: "Milk", done: false, later: true, categoryId: "dairy" } },
+    categories: { dairy: { id: "dairy", name: "Dairy", group: "EDEKA" }, bread: { id: "bread", name: "Bread", group: null } },
+    classifierHistory: {},
+  });
+  assert.doesNotThrow(() => validateListDocument(valid));
+  const badLater = Automerge.from({ schemaVersion: 1, todos: { item: { id: "item", text: "Milk", done: false, later: "yes" } }, categories: {}, classifierHistory: {} });
+  assert.throws(() => validateListDocument(badLater), /todo.later must be boolean/);
+  const badGroup = Automerge.from({ schemaVersion: 1, todos: {}, categories: { dairy: { id: "dairy", name: "Dairy", group: 3 } }, classifierHistory: {} });
+  assert.throws(() => validateListDocument(badGroup), /category.group is invalid/);
+});
+
 test("rejects unsupported nested document data", () => {
   const invalid = Automerge.from({
     schemaVersion: 1,

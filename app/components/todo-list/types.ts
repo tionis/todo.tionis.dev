@@ -2,6 +2,8 @@ export interface Todo {
   id: string;
   text: string;
   done: boolean;
+  /** Restocking that isn't urgent ("Nachfüllen"). */
+  later?: boolean;
   order: number;
   sublist?: Sublist | null;
   [key: string]: any;
@@ -10,6 +12,8 @@ export interface Todo {
 export interface Sublist {
   id: string;
   name: string;
+  /** Categories with the same group are shown under one header, e.g. a second store. */
+  group?: string | null;
   order: number;
   todos: Todo[];
   [key: string]: any;

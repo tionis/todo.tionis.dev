@@ -4,7 +4,9 @@ import React, { useState } from 'react';
 import { id } from '../../../lib/id';
 import { useDroppable } from '@dnd-kit/core';
 import { db } from '../../../lib/db';
-import { createTodoTransactions } from '../../../lib/todoTransactions';
+import { createCategoryToRestockTransactions, createTodoTransactions } from '../../../lib/todoTransactions';
+import { groupNames, normalizeGroupName } from '../../../lib/categoryGroups';
+import { useToast } from '../Toast';
 import type { Todo, Sublist, TodoList } from './types';
 import { TodoListComponent } from './TodoItems';
 
@@ -16,7 +18,8 @@ export function SublistSection({
   toggleTodo,
   deleteTodo,
   collapsed,
-  onToggleCollapsed
+  onToggleCollapsed,
+  hideRestock
 }: { 
   sublist: Sublist; 
   todoList: TodoList; 
@@ -26,24 +29,29 @@ export function SublistSection({
   deleteTodo: (todo: Todo) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  hideRestock: boolean;
 }) {
   const [showCompletedInSublist, setShowCompletedInSublist] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState(sublist.name);
+  const [editGroup, setEditGroup] = useState(sublist.group || "");
+  const [showRestockConfirm, setShowRestockConfirm] = useState(false);
+  const { addToast } = useToast();
   
   // Droppable for the sublist header
   const { isOver, setNodeRef } = useDroppable({
     id: `sublist-${sublist.id}`,
   });
   
+  const shownTodos = hideRestock ? sublist.todos.filter(todo => !todo.later) : sublist.todos;
   const visibleTodos = todoList.hideCompleted 
-    ? sublist.todos.filter(todo => !todo.done)
-    : sublist.todos;
+    ? shownTodos.filter(todo => !todo.done)
+    : shownTodos;
   
-  const completedTodos = sublist.todos.filter(todo => todo.done);
-  const completedCount = completedTodos.length;
+  const completedTodos = shownTodos.filter(todo => todo.done);
+  const completedCount = sublist.todos.filter(todo => todo.done).length;
   const totalCount = sublist.todos.length;
 
   const deleteSublist = () => {
@@ -60,6 +68,7 @@ export function SublistSection({
     if (!isOwner) return;
     setEditingName(true);
     setEditName(sublist.name);
+    setEditGroup(sublist.group || "");
   };
 
   const saveNameEdit = async () => {
@@ -67,7 +76,8 @@ export function SublistSection({
     
     try {
       await db.transact(db.tx.sublists[sublist.id].update({
-        name: editName.trim()
+        name: editName.trim(),
+        group: normalizeGroupName(editGroup)
       }));
       setEditingName(false);
     } catch (err) {
@@ -79,6 +89,20 @@ export function SublistSection({
   const cancelNameEdit = () => {
     setEditingName(false);
     setEditName(sublist.name);
+    setEditGroup(sublist.group || "");
+  };
+
+  const convertToRestock = () => {
+    const { transactions, sorted, unsorted } = createCategoryToRestockTransactions(todoList, sublist.id);
+    db.transact(transactions).then(() => {
+      addToast(
+        `${sublist.name} is now the restock flag: ${sorted} item${sorted === 1 ? '' : 's'} sorted${unsorted ? `, ${unsorted} left to sort by hand` : ''}`,
+        "success",
+      );
+    }).catch(err => {
+      console.error("Failed to convert category:", err);
+      setShowError("Failed to convert the category. Please try again.");
+    });
   };
 
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
@@ -111,16 +135,42 @@ export function SublistSection({
             controls={`sublist-content-${sublist.id}`}
           />
           {editingName ? (
-            <input
-              type="text"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onBlur={saveNameEdit}
-              onKeyDown={handleNameKeyDown}
-              className="text-sm font-medium bg-white dark:bg-gray-600 text-gray-900 dark:text-white border border-blue-300 dark:border-blue-600 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1"
-              autoFocus
-              style={{ WebkitTapHighlightColor: 'transparent' }}
-            />
+            <form
+              className="flex flex-wrap items-center gap-2 flex-1 min-w-0"
+              onSubmit={(e) => { e.preventDefault(); saveNameEdit(); }}
+            >
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={handleNameKeyDown}
+                aria-label="Category name"
+                className="text-sm font-medium bg-white dark:bg-gray-600 text-gray-900 dark:text-white border border-blue-300 dark:border-blue-600 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 basis-32"
+                autoFocus
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              />
+              <input
+                type="text"
+                value={editGroup}
+                onChange={(e) => setEditGroup(e.target.value)}
+                onKeyDown={handleNameKeyDown}
+                aria-label="Group"
+                placeholder="Group (optional)"
+                list={`category-groups-${todoList.id}`}
+                className="text-sm bg-white dark:bg-gray-600 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 basis-28"
+              />
+              <GroupSuggestions todoList={todoList} />
+              <button type="submit" className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">Save</button>
+              <button type="button" onClick={cancelNameEdit} className="px-2 py-1 text-xs rounded bg-gray-300 text-gray-700 dark:bg-gray-600 dark:text-gray-200">Cancel</button>
+              <button
+                type="button"
+                onClick={() => setShowRestockConfirm(true)}
+                className="px-2 py-1 text-xs text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+                title="Turn this category into the restock flag"
+              >
+                Convert to restock…
+              </button>
+            </form>
           ) : (
             <span 
               className={`text-sm font-medium text-gray-900 dark:text-white ${isOwner ? 'md:cursor-pointer md:hover:bg-gray-100 md:dark:hover:bg-gray-600 rounded px-2 py-1 -mx-2 -my-1 transition-colors' : ''} min-h-[2rem] flex items-center`}
@@ -193,6 +243,38 @@ export function SublistSection({
         </div>
       )}
       
+      {showRestockConfirm && (
+        <div className="fixed inset-0 bg-slate-100 dark:bg-slate-900 flex items-start sm:items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full relative shadow-xl">
+            <h4 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Convert to restock</h4>
+            <p className="text-gray-600 dark:text-gray-300 mb-3">
+              Use this when &quot;<strong>{sublist.name}</strong>&quot; means &quot;not urgent&quot; rather than a place in the store.
+            </p>
+            <p className="text-gray-600 dark:text-gray-300 mb-6 text-sm">
+              Its {sublist.todos.length} item{sublist.todos.length === 1 ? '' : 's'} get the restock flag and are sorted into the other categories where the classifier is sure; the rest stay uncategorized for you to sort. The category itself is removed.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setShowRestockConfirm(false);
+                  setEditingName(false);
+                  convertToRestock();
+                }}
+                className="flex-1 bg-amber-600 text-white py-2 px-4 rounded hover:bg-amber-700"
+              >
+                Convert
+              </button>
+              <button
+                onClick={() => setShowRestockConfirm(false)}
+                className="flex-1 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 px-4 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-slate-100 dark:bg-slate-900 flex items-start sm:items-center justify-center z-50 p-4 overflow-y-auto">
@@ -225,16 +307,27 @@ export function SublistSection({
   );
 }
 
+/** Existing group names as suggestions for a group field (`list="category-groups-<list>"`). */
+export function GroupSuggestions({ todoList }: { todoList: TodoList }) {
+  return (
+    <datalist id={`category-groups-${todoList.id}`}>
+      {groupNames(todoList.sublists).map((name) => <option key={name} value={name} />)}
+    </datalist>
+  );
+}
+
 export function CollapseToggle({
   collapsed,
   onToggle,
   label,
-  controls
+  controls,
+  kind = 'category'
 }: {
   collapsed: boolean;
   onToggle: () => void;
   label: string;
   controls: string;
+  kind?: 'category' | 'group';
 }) {
   return (
     <button
@@ -243,7 +336,7 @@ export function CollapseToggle({
       aria-expanded={!collapsed}
       aria-controls={controls}
       aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
-      title={collapsed ? 'Expand category' : 'Collapse category'}
+      title={`${collapsed ? 'Expand' : 'Collapse'} ${kind}`}
       className="shrink-0 w-7 h-7 -ml-1 flex items-center justify-center rounded text-gray-500 hover:text-gray-800 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-600 touch-manipulation"
       style={{ WebkitTapHighlightColor: 'transparent' }}
     >
@@ -262,6 +355,7 @@ export function CollapseToggle({
 export function AddSublistForm({ todoList }: { todoList: TodoList }) {
   const [isAdding, setIsAdding] = useState(false);
   const [name, setName] = useState("");
+  const [group, setGroup] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -273,12 +367,14 @@ export function AddSublistForm({ todoList }: { todoList: TodoList }) {
       db.tx.sublists[id()]
         .update({
           name: name.trim(),
+          ...(normalizeGroupName(group) ? { group: normalizeGroupName(group) } : {}),
           order: maxOrder + 1,
           createdAt: new Date().toISOString()
         })
         .link({ list: todoList.id })
     ).then(() => {
       setName("");
+      setGroup("");
       setIsAdding(false);
       setError(null);
     }).catch(err => {
@@ -307,15 +403,25 @@ export function AddSublistForm({ todoList }: { todoList: TodoList }) {
           {error}
         </div>
       )}
-      <form onSubmit={handleSubmit} className="flex space-x-2">
+      <form onSubmit={handleSubmit} className="flex flex-wrap gap-2">
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Category name"
-          className="flex-1 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+          className="flex-1 basis-32 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
           autoFocus
         />
+        <input
+          type="text"
+          value={group}
+          onChange={(e) => setGroup(e.target.value)}
+          placeholder="Group (optional)"
+          aria-label="Group"
+          list={`category-groups-${todoList.id}`}
+          className="flex-1 basis-28 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+        />
+        <GroupSuggestions todoList={todoList} />
         <button
           type="submit"
           className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"
@@ -386,17 +492,33 @@ export function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublis
   );
 }
 
-export function ActionBar({ todoList, canWrite, deleteCompleted }: { 
+export function ActionBar({ todoList, canWrite, deleteCompleted, hideRestock, setHideRestock }: { 
   todoList: TodoList; 
   canWrite: boolean;
   deleteCompleted: (completedTodos: Todo[]) => void;
+  hideRestock: boolean;
+  setHideRestock: (hide: boolean) => void;
 }) {
   const remainingCount = todoList.todos.filter(todo => !todo.done).length;
   const completedTodos = todoList.todos.filter(todo => todo.done);
+  const restockCount = todoList.todos.filter(todo => !todo.done && todo.later).length;
 
   return (
-    <div className="flex justify-between items-center h-10 px-2 text-xs border-t border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300">
-      <div>Remaining todos: {remainingCount}</div>
+    <div className="flex justify-between items-center gap-2 min-h-10 px-2 py-1 text-xs border-t border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300">
+      <div className="flex items-center gap-3">
+        <span>Remaining todos: {remainingCount}</span>
+        {(restockCount > 0 || hideRestock) && (
+          <button
+            type="button"
+            onClick={() => setHideRestock(!hideRestock)}
+            aria-pressed={hideRestock}
+            className="text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+            title="Restock items are not needed at the next opportunity"
+          >
+            {hideRestock ? `Show restock (${restockCount})` : `Hide restock (${restockCount})`}
+          </button>
+        )}
+      </div>
       {canWrite && completedTodos.length > 0 && (
         <button
           className="text-gray-400 hover:text-gray-600 dark:text-gray-400 dark:hover:text-gray-300"

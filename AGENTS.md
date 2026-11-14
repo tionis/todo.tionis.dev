@@ -36,7 +36,9 @@ On Eric's machine npm may be managed by mise; if plain `npm` is not found, use
 ## Architecture
 
 - Each list is one Automerge document: `schemaVersion`, `todos`, `categories`,
-  `classifierHistory` (maps keyed by id). The backend validates every document against
+  `classifierHistory` (maps keyed by id). Optional fields: a category's `group` (categories
+  with the same group share a header, `lib/categoryGroups.ts`) and a todo's `later` (restock,
+  not urgent). The backend validates every document against
   exactly these fields (`backend/document-validation.mjs`); new fields need changes there.
 - All backend Automerge parsing, validation, merging and classifier resets run in one
   worker (`backend/document-worker.mjs`, `backend/document-processor.mjs`) with a timeout;

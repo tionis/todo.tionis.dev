@@ -6,6 +6,8 @@ A local-first collaborative grocery todo app built with Next.js, React, Automerg
 
 - The Next.js frontend remains a static export served by the backend process in production.
 - Each list is an Automerge document containing categories, todos, and classifier history.
+- Categories can name a group (e.g. a second store, "EDEKA"); grouped categories are shown under one header. Todos can be flagged as restock ("Nachfüllen": not needed at the next opportunity); they stay in their category, are shown dimmed, and each device can hide them. A category that stood for "not urgent" can be converted into the flag from its edit form.
+- Which categories and groups are collapsed, and whether restock items are hidden, is a per-device view setting in localStorage, not part of the shared document.
 - Browser documents are stored in IndexedDB and changes remain available offline.
 - The backend persists canonical Automerge files. A connection first receives the full document; afterwards the server broadcasts only the changes each merge added (with its heads), and clients upload only the changes since the server's heads. The HTTP upload endpoint still accepts full documents, and the on-disk format is unchanged.
 - SQLite stores server-authoritative users, directory groups, sessions, list metadata, permissions, members, and pins.
@@ -170,7 +172,7 @@ See [backend/.env.example](backend/.env.example) for optional settings.
 
 ## Moving from the previous service
 
-Before the old service is retired, list owners can open **List Settings → Download Export**. In the Automerge version, use **Import Export** on the dashboard. Version 1 exports restore list settings, categories and keyword hints, todos with completion/order/timestamps, and the complete classifier history. Imports are private to the importing user by default; sharing must be configured again.
+Before the old service is retired, list owners can open **List Settings → Download Export**. In the Automerge version, use **Import Export** on the dashboard. Version 1 exports restore list settings, categories with groups and keyword hints, todos with completion, restock flag, order and timestamps, and the complete classifier history. Imports are private to the importing user by default; sharing must be configured again.
 
 ## Checks
 

@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { db } from '../../../lib/db';
 import { classifyTodoText, shouldAutoSortClassification } from '../../../lib/classification';
 import { createTodoTransactions } from '../../../lib/todoTransactions';
+import { layoutCategorySections } from '../../../lib/categoryGroups';
 import type { Todo, TodoList } from './types';
 
 export function TodoForm({
@@ -16,6 +17,7 @@ export function TodoForm({
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
   const [selectedSublist, setSelectedSublist] = useState<string>("");
+  const [later, setLater] = useState(false);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const previewClassification = text.trim() && !selectedSublist && todoList.autoSortTodos
@@ -43,6 +45,8 @@ export function TodoForm({
       trimmedText,
       selectedSublist || undefined,
       "explicit-create",
+      undefined,
+      { later },
     );
 
     db.transact(transactions).then(() => {
@@ -59,6 +63,7 @@ export function TodoForm({
         }
       }
       setText("");
+      setLater(false);
       setError(null);
     }).catch(err => {
       console.error("Failed to create todo:", err);
@@ -92,12 +97,27 @@ export function TodoForm({
             className="px-2 py-2 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white sm:w-auto w-full"
           >
             <option value="">No category</option>
-            {todoList.sublists.map(sublist => (
-              <option key={sublist.id} value={sublist.id}>
-                {sublist.name}
+            {layoutCategorySections(todoList.sublists).map(section => section.kind === 'group' ? (
+              <optgroup key={`group-${section.name}`} label={section.name}>
+                {section.categories.map(sublist => (
+                  <option key={sublist.id} value={sublist.id}>{sublist.name}</option>
+                ))}
+              </optgroup>
+            ) : (
+              <option key={section.category.id} value={section.category.id}>
+                {section.category.name}
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => setLater(!later)}
+            aria-pressed={later}
+            title="Restock: not needed at the next opportunity"
+            className={`px-3 py-2 border rounded text-sm sm:w-auto w-full ${later ? 'border-amber-400 bg-amber-100 text-amber-900 dark:border-amber-600 dark:bg-amber-900/40 dark:text-amber-100' : 'border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300'}`}
+          >
+            Restock
+          </button>
           <button
             type="submit"
             disabled={!canSubmit}
@@ -130,6 +150,7 @@ export function SortableTodoItem({
   handleKeyDown, 
   toggleTodo, 
   deleteTodo,
+  toggleLater,
   isDragOverlay = false
 }: {
   todo: Todo;
@@ -143,6 +164,7 @@ export function SortableTodoItem({
   handleKeyDown: (e: React.KeyboardEvent, todoId: string) => void;
   toggleTodo: (todo: Todo) => void;
   deleteTodo: (todo: Todo) => void;
+  toggleLater: (todo: Todo) => void;
   isDragOverlay?: boolean;
 }) {
   const {
@@ -213,7 +235,7 @@ export function SortableTodoItem({
           />
         ) : (
           <span 
-            className={`select-none ${todo.done ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} ${canWrite ? 'md:cursor-pointer md:hover:bg-gray-50 md:dark:hover:bg-gray-700' : ''} rounded px-2 py-2 w-full min-h-[2rem] flex items-center transition-colors`}
+            className={`select-none ${todo.done ? 'line-through text-gray-500 dark:text-gray-400' : todo.later ? 'text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-white'} ${canWrite ? 'md:cursor-pointer md:hover:bg-gray-50 md:dark:hover:bg-gray-700' : ''} rounded px-2 py-2 w-full min-h-[2rem] flex items-center transition-colors`}
             onDoubleClick={() => startEditing(todo)}
             onClick={() => {
               // Only allow click-to-edit on desktop (medium screens and up)
@@ -223,7 +245,17 @@ export function SortableTodoItem({
             }}
             style={{ WebkitTapHighlightColor: 'transparent' }}
           >
-            {todo.text}
+            <span className="min-w-0 break-words">{todo.text}</span>
+            {todo.later && (
+              <span
+                className="ml-2 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                title="Restock: not urgent"
+                aria-label="Restock: not urgent"
+              >
+                <span aria-hidden="true" className="sm:hidden">↻</span>
+                <span aria-hidden="true" className="hidden sm:inline">restock</span>
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -231,6 +263,15 @@ export function SortableTodoItem({
       {/* Action Buttons */}
       {canWrite && editingTodo !== todo.id && (
         <div className="flex items-center">
+          <button
+            className={`h-full px-2 py-2 flex items-center justify-center md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation text-xs ${todo.later ? 'text-amber-600 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-200' : 'text-gray-300 hover:text-amber-600 dark:text-gray-500 dark:hover:text-amber-400'}`}
+            onClick={() => toggleLater(todo)}
+            title={todo.later ? "Mark as needed now" : "Mark as restock (not urgent)"}
+            aria-pressed={!!todo.later}
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            {todo.later ? 'now' : 'later'}
+          </button>
           <button
             className="h-full px-3 py-2 flex items-center justify-center text-gray-300 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation text-xs"
             onClick={() => startEditing(todo)}
@@ -289,6 +330,14 @@ export function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
     setEditText("");
   };
 
+  const toggleLater = (todo: Todo) => {
+    if (!canWrite) return;
+    db.transact(db.tx.todos[todo.id].update({
+      later: !todo.later,
+      updatedAt: new Date().toISOString()
+    })).catch(err => console.error("Failed to update todo:", err));
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent, todoId: string) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -316,6 +365,7 @@ export function TodoListComponent({ todos, canWrite, toggleTodo, deleteTodo }: {
             handleKeyDown={handleKeyDown}
             toggleTodo={toggleTodo}
             deleteTodo={deleteTodo}
+            toggleLater={toggleLater}
           />
         ))}
       </div>

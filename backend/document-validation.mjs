@@ -2,8 +2,8 @@ const MAX_ITEMS = 10_000;
 const MAX_TEXT = 20_000;
 const MAX_TOTAL_TEXT = 2_000_000;
 const TOP_LEVEL_FIELDS = new Set(["schemaVersion", "todos", "categories", "classifierHistory"]);
-const TODO_FIELDS = new Set(["id", "text", "done", "order", "createdAt", "updatedAt", "categoryId"]);
-const CATEGORY_FIELDS = new Set(["id", "name", "order", "classifierKeywords", "createdAt"]);
+const TODO_FIELDS = new Set(["id", "text", "done", "later", "order", "createdAt", "updatedAt", "categoryId"]);
+const CATEGORY_FIELDS = new Set(["id", "name", "group", "order", "classifierKeywords", "createdAt"]);
 const CLASSIFIER_FIELDS = new Set(["id", "text", "normalizedText", "source", "createdAt", "categoryId"]);
 
 export function deleteClassifierHistoryThrough(document, resetAt) {
@@ -54,6 +54,7 @@ export function validateListDocument(document) {
     assertString(todo.id, "todo.id", budget);
     assertString(todo.text, "todo.text", budget);
     if (typeof todo.done !== "boolean") throw new Error("todo.done must be boolean");
+    if (todo.later !== undefined && todo.later !== null && typeof todo.later !== "boolean") throw new Error("todo.later must be boolean");
     assertNumber(todo.order, "todo.order", true);
     assertString(todo.createdAt, "todo.createdAt", budget, true);
     assertString(todo.updatedAt, "todo.updatedAt", budget, true);
@@ -65,6 +66,7 @@ export function validateListDocument(document) {
     assertKeys(category, CATEGORY_FIELDS, "category");
     assertString(category.id, "category.id", budget);
     assertString(category.name, "category.name", budget);
+    assertString(category.group, "category.group", budget, true);
     assertNumber(category.order, "category.order", true);
     assertString(category.classifierKeywords, "category.classifierKeywords", budget, true);
     assertString(category.createdAt, "category.createdAt", budget, true);

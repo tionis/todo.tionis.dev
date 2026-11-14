@@ -9,6 +9,8 @@ import { useToast } from '../Toast';
 import type { Todo, Sublist, TodoList } from './types';
 import { ActionBar, AddSublistForm, CollapseToggle, SublistSection } from './SublistSection';
 import { UNCATEGORIZED_SECTION_ID, useCollapsedCategories } from '../../../lib/collapsedCategories';
+import { groupSectionId, layoutCategorySections } from '../../../lib/categoryGroups';
+import { useListViewPreference } from '../../../lib/viewPreferences';
 import { TodoForm, TodoListComponent } from './TodoItems';
 
 export function DroppableUncategorizedSection({
@@ -22,7 +24,8 @@ export function DroppableUncategorizedSection({
   deleteTodo,
   todoList,
   collapsed,
-  onToggleCollapsed
+  onToggleCollapsed,
+  hideRestock
 }: {
   visibleTodos: Todo[];
   todosWithoutSublist: Todo[];
@@ -35,10 +38,15 @@ export function DroppableUncategorizedSection({
   todoList: TodoList;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  hideRestock: boolean;
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id: 'sublist-uncategorized',
   });
+  if (hideRestock) {
+    visibleTodos = visibleTodos.filter(todo => !todo.later);
+    completedUncategorizedTodos = completedUncategorizedTodos.filter(todo => !todo.later);
+  }
 
   return (
     <div>
@@ -125,6 +133,7 @@ export function GlobalDragWrapper({
   const [activeId, setActiveId] = useState<string | null>(null);
   const { addToast } = useToast();
   const { collapsed, toggle: toggleCollapsed } = useCollapsedCategories(todoList.id);
+  const [hideRestock, setHideRestock] = useListViewPreference(todoList.id, 'hide-restock');
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -280,20 +289,46 @@ export function GlobalDragWrapper({
       <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
         {canWrite && <TodoForm todoList={todoList} addToast={addToast} />}
         
-        {/* Sublists */}
-        {sublists.map(sublist => (
-          <SublistSection 
-            key={sublist.id} 
-            sublist={sublist} 
-            todoList={todoList}
-            canWrite={canWrite}
-            isOwner={isOwner}
-            toggleTodo={toggleTodo}
-            deleteTodo={deleteTodo}
-            collapsed={collapsed.has(sublist.id)}
-            onToggleCollapsed={() => toggleCollapsed(sublist.id)}
-          />
-        ))}
+        {/* Categories, grouped where they name a group */}
+        {layoutCategorySections(sublists).map(section => {
+          const renderCategory = (sublist: Sublist) => (
+            <SublistSection 
+              key={sublist.id} 
+              sublist={sublist} 
+              todoList={todoList}
+              canWrite={canWrite}
+              isOwner={isOwner}
+              toggleTodo={toggleTodo}
+              deleteTodo={deleteTodo}
+              collapsed={collapsed.has(sublist.id)}
+              onToggleCollapsed={() => toggleCollapsed(sublist.id)}
+              hideRestock={hideRestock}
+            />
+          );
+          if (section.kind === 'category') return renderCategory(section.category);
+          const sectionId = groupSectionId(section.name);
+          const isCollapsed = collapsed.has(sectionId);
+          const todos = section.categories.flatMap(category => category.todos);
+          return (
+            <div key={sectionId} className="border-b border-gray-300 dark:border-gray-600">
+              <div className="bg-gray-100 dark:bg-gray-900/60 px-3 py-2 flex items-center space-x-2 text-sm font-semibold text-gray-900 dark:text-white">
+                <CollapseToggle
+                  collapsed={isCollapsed}
+                  onToggle={() => toggleCollapsed(sectionId)}
+                  label={section.name}
+                  controls={`group-content-${sectionId}`}
+                  kind="group"
+                />
+                <span>{section.name} ({todos.filter(todo => !todo.done).length}/{todos.length})</span>
+              </div>
+              {!isCollapsed && (
+                <div id={`group-content-${sectionId}`} className="pl-3 [&>*:last-child]:border-b-0">
+                  {section.categories.map(renderCategory)}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         {/* Add new sublist button */}
         {canWrite && <AddSublistForm todoList={todoList} />}
@@ -312,10 +347,11 @@ export function GlobalDragWrapper({
             todoList={todoList}
             collapsed={collapsed.has(UNCATEGORIZED_SECTION_ID)}
             onToggleCollapsed={() => toggleCollapsed(UNCATEGORIZED_SECTION_ID)}
+            hideRestock={hideRestock}
           />
         )}
         
-        <ActionBar todoList={todoList} canWrite={canWrite} deleteCompleted={deleteCompleted} />
+        <ActionBar todoList={todoList} canWrite={canWrite} deleteCompleted={deleteCompleted} hideRestock={hideRestock} setHideRestock={setHideRestock} />
       </div>
       
       <DragOverlay>

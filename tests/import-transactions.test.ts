@@ -37,6 +37,26 @@ test("full-list import remaps category references for todos and classifier histo
   assert.equal(sample.source, "checked");
 });
 
+test("full-list import keeps category groups and restock flags", () => {
+  const exported = {
+    format: "smart-todos-list",
+    version: 1,
+    list: { name: "Imported" },
+    categories: [{ id: "old-dairy", name: "Kühlregal", group: "EDEKA", order: 1 }, { id: "old-bread", name: "Brot", group: null, order: 2 }],
+    todos: [{ id: "a", text: "Joghurt", done: false, later: true, categoryId: "old-dairy" }, { id: "b", text: "Brot", done: false, categoryId: "old-bread" }],
+    classifierHistory: [],
+  };
+  const document = emptyDocument();
+  applyContentOperationsToDraft(document, operations(buildListImportTransactions(exported, "owner-1", "slug").transactions).filter((operation) => operation.entity !== "todoLists"));
+  const categories = Object.values(document.categories);
+  assert.equal(categories.find((category) => category.name === "Kühlregal").group, "EDEKA");
+  assert.equal("group" in categories.find((category) => category.name === "Brot"), false);
+  const todos = Object.values(document.todos);
+  assert.equal(todos.find((todo) => todo.text === "Joghurt").later, true);
+  assert.equal("later" in todos.find((todo) => todo.text === "Brot"), false);
+  assert.throws(() => buildListImportTransactions({ ...exported, todos: [{ id: "c", text: "x", done: false, later: "yes" }] }, "owner-1", "slug"), /todo.later is invalid/);
+});
+
 test("full-list import rejects malformed and oversized record sets before creating transactions", () => {
   assert.throws(() => buildListImportTransactions({ format: "wrong" }, "owner", "slug"), /not a supported/);
   const tooMany = {

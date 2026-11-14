@@ -35,12 +35,14 @@ function assertExport(value: any): asserts value is ListExportV1 {
   for (const category of value.categories) {
     assertImportString(category?.id, "category.id", budget);
     assertImportString(category?.name, "category.name", budget);
+    assertImportString(category?.group, "category.group", budget, true);
     assertImportString(category?.classifierKeywords, "category.classifierKeywords", budget, true);
   }
   for (const todo of value.todos) {
     assertImportString(todo?.id, "todo.id", budget);
     assertImportString(todo?.text, "todo.text", budget);
     if (typeof todo?.done !== "boolean") throw new Error("todo.done is invalid");
+    if (todo?.later !== undefined && todo?.later !== null && typeof todo?.later !== "boolean") throw new Error("todo.later is invalid");
     assertImportString(todo?.categoryId, "todo.categoryId", budget, true);
   }
   for (const sample of value.classifierHistory) {
@@ -74,6 +76,7 @@ export function buildListImportTransactions(value: unknown, ownerId: string, slu
   for (const category of value.categories) {
     transactions.push(db.tx.sublists[categoryIds.get(category.id)!].update({
       name: category.name,
+      ...(category.group ? { group: category.group } : {}),
       order: category.order ?? 0,
       classifierKeywords: category.classifierKeywords ?? "",
       createdAt: category.createdAt || new Date().toISOString(),
@@ -83,6 +86,7 @@ export function buildListImportTransactions(value: unknown, ownerId: string, slu
     let transaction = db.tx.todos[id()].update({
       text: todo.text,
       done: !!todo.done,
+      ...(todo.later ? { later: true } : {}),
       order: todo.order ?? 0,
       createdAt: todo.createdAt || new Date().toISOString(),
       updatedAt: todo.updatedAt || todo.createdAt || new Date().toISOString(),

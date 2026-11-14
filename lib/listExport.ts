@@ -6,6 +6,7 @@ type ExportDate = string | number | Date | null;
 interface ExportSublist {
   id: string;
   name: string;
+  group?: string | null;
   order?: number | null;
   classifierKeywords?: string | null;
   createdAt?: ExportDate;
@@ -15,6 +16,7 @@ interface ExportTodo {
   id: string;
   text: string;
   done: boolean;
+  later?: boolean | null;
   order?: number | null;
   createdAt?: ExportDate;
   updatedAt?: ExportDate;
@@ -78,6 +80,7 @@ export function buildListExport(todoList: ExportableTodoList, exportedAt = new D
       .map((sublist) => ({
         id: sublist.id,
         name: sublist.name,
+        group: sublist.group || null,
         order: sublist.order ?? null,
         classifierKeywords: sublist.classifierKeywords ?? null,
         createdAt: serializeDate(sublist.createdAt),
@@ -88,6 +91,7 @@ export function buildListExport(todoList: ExportableTodoList, exportedAt = new D
         id: todo.id,
         text: todo.text,
         done: todo.done,
+        later: !!todo.later,
         order: todo.order ?? null,
         categoryId: todo.sublist?.id ?? null,
         createdAt: serializeDate(todo.createdAt),

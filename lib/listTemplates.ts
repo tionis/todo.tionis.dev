@@ -12,6 +12,7 @@ export interface TemplateCopyOptions {
 interface TemplateSublist {
   id: string;
   name: string;
+  group?: string | null;
   order?: number | null;
   classifierKeywords?: string | null;
 }
@@ -20,6 +21,7 @@ interface TemplateTodo {
   id: string;
   text: string;
   done: boolean;
+  later?: boolean | null;
   order?: number | null;
   sublist?: { id: string } | null;
 }
@@ -115,6 +117,7 @@ function createTemplateContentTransactions({
       db.tx.sublists[newSublistId]
         .update({
           name: sublist.name,
+          ...(sublist.group ? { group: sublist.group } : {}),
           order: targetSublists.length + index + 1,
           classifierKeywords: sublist.classifierKeywords || "",
           createdAt: new Date().toISOString(),
@@ -130,6 +133,7 @@ function createTemplateContentTransactions({
         .update({
           text: todo.text,
           done: todo.done,
+          ...(todo.later ? { later: true } : {}),
           order: index + 1,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
