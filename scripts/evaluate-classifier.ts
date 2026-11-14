@@ -3,6 +3,12 @@
 //
 //   npm run eval:classifier -- <export.json> [--methods current,lookup-first,naive-bayes,jev,jev-fallback]
 //                              [--max-requests 300] [--max-events N] [--json]
+//                              [--trusted] [--since YYYY-MM-DD] [--review sheet.csv] [--verdicts sheet.csv]
+//
+// --trusted scores only labels a person chose (manual moves, check-offs of items they placed);
+// --since scores only events from that day on. --review writes the events where a method
+// disagrees with the label (or the label is untrusted) for a person to judge, and --verdicts
+// scores against a filled-in sheet (lib/classifier-eval-review.ts).
 //
 // `jev` and `jev-fallback` need AIMLAPI_KEY and send item texts and category names to AIMLAPI /
 // TypeSafe. JEV_MODEL picks the model (default typesafe/jev-1.14), JEV_BASE_URL another
@@ -32,6 +38,8 @@ import {
   type JevRequest,
   type JevResponse,
 } from "../lib/classifier-eval";
+import { buildReviewSheet, parseVerdicts } from "../lib/classifier-eval-review";
+import { labelEvents } from "../lib/classifier-eval";
 import {
   DEFAULT_EMBEDDING_MODEL,
   DEFAULT_EMBEDDING_THRESHOLDS,
@@ -46,7 +54,10 @@ import {
 const OPENROUTER = "https://openrouter.ai/api/v1";
 
 function parseArgs(argv: string[]) {
-  const args = { file: "", methods: ["current", "lookup-first", "naive-bayes"], maxRequests: 300, maxEvents: 0, json: false };
+  const args = {
+    file: "", methods: ["current", "lookup-first", "naive-bayes"], maxRequests: 300, maxEvents: 0, json: false,
+    trusted: false, since: "", review: "", verdicts: "",
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const value = () => argv[++index] ?? "";
@@ -54,6 +65,10 @@ function parseArgs(argv: string[]) {
     else if (arg === "--max-requests") args.maxRequests = Number(value());
     else if (arg === "--max-events") args.maxEvents = Number(value());
     else if (arg === "--json") args.json = true;
+    else if (arg === "--trusted") args.trusted = true;
+    else if (arg === "--since") args.since = value();
+    else if (arg === "--review") args.review = value();
+    else if (arg === "--verdicts") args.verdicts = value();
     else if (arg.startsWith("--")) throw new Error(`Unknown option ${arg}`);
     else args.file = arg;
   }
@@ -136,13 +151,25 @@ async function main() {
     return available[name]();
   });
 
+  const since = args.since ? Date.parse(args.since) : undefined;
+  if (args.since && Number.isNaN(since)) throw new Error(`--since ${args.since} is not a date`);
+  const verdicts = args.verdicts
+    ? parseVerdicts(await readFile(args.verdicts, "utf8"), data.categories, labelEvents(data))
+    : undefined;
   const reports = await replay(data, methods, {
     maxEvents: args.maxEvents || undefined,
+    trustedOnly: args.trusted,
+    since,
+    verdicts,
     onProgress: (done, total) => {
       if (process.stderr.isTTY && (done % 25 === 0 || done === total)) process.stderr.write(`\r${done}/${total} events`);
     },
   });
   if (process.stderr.isTTY) process.stderr.write("\n");
+  if (args.review) {
+    await writeFile(args.review, buildReviewSheet(reports, data.categories));
+    console.error(`Review sheet written to ${args.review}.`);
+  }
 
   const sweeps = Object.fromEntries(reports
     .filter((report) => ["naive-bayes", "jev", "llm", "embed"].includes(report.method))
@@ -160,7 +187,13 @@ async function main() {
     return;
   }
 
-  console.log(`List: ${data.list.name ?? "?"}, ${data.categories.length} categories, ${data.classifierHistory.length} samples, ${data.todos.length} todos\n`);
+  console.log(`List: ${data.list.name ?? "?"}, ${data.categories.length} categories, ${data.classifierHistory.length} samples, ${data.todos.length} todos`);
+  const scope = [
+    args.trusted ? "only labels a person chose" : "all labels",
+    since ? `events since ${args.since}` : "all events",
+    verdicts ? `${verdicts.size} reviewed verdicts` : "no review",
+  ];
+  console.log(`Scored: ${scope.join(", ")}\n`);
   console.log(formatTable(reports));
   console.log("\nauto = sorted without asking; sugg = offered as a suggestion; top-1 = predicted category right at any confidence");
   console.log("(abstaining counts as wrong); cold = the item text had never been placed before.");

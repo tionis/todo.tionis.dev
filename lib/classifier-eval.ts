@@ -82,7 +82,30 @@ export interface LabelEvent {
   normalizedText: string;
   categoryId: string;
   origin: "checked" | "manual-move" | "done-todo";
+  /**
+   * A person chose this category: a manual move, or a check-off of an item they had added in or
+   * moved to that category shortly before. Otherwise the placement may have been the
+   * classifier's, checked off without correcting it.
+   */
+  trusted: boolean;
+  /** Categories that count as right; normally just `categoryId`, more after a review. */
+  acceptable: string[];
 }
+
+/** Samples that record a person placing an item (as opposed to checking it off). */
+export const PLACEMENT_SOURCES = new Set(["quick-add", "explicit-create", "explicit", "manual-move"]);
+const PLACEMENT_WINDOW_MS = 60 * 24 * 60 * 60 * 1000;
+
+/** The key a review verdict is filed under: the event's time and item. */
+export function eventKey(event: Pick<LabelEvent, "at" | "normalizedText">): string {
+  return `${new Date(event.at).toISOString()} ${event.normalizedText}`;
+}
+
+/**
+ * A reviewed verdict on one event: the categories that are right (several if more than one is
+ * fine), or `null` to leave the event out (unclear, or not a placement worth scoring).
+ */
+export type Verdicts = Map<string, string[] | null>;
 
 export function time(value?: string | number | null): number {
   if (value === undefined || value === null || value === "") return 0;
@@ -110,7 +133,12 @@ export function labelEvents(data: EvalExport): LabelEvent[] {
     if (!at || !afterReset(at, resetAt)) continue;
     const normalizedText = sample.normalizedText || normalizeItemText(sample.text);
     if (!normalizedText) continue;
-    events.push({ at, text: sample.text, normalizedText, categoryId: sample.categoryId, origin: sample.source as LabelEvent["origin"] });
+    events.push({
+      at, text: sample.text, normalizedText, categoryId: sample.categoryId,
+      origin: sample.source as LabelEvent["origin"],
+      trusted: sample.source === "manual-move" || placedBy(data, normalizedText, sample.categoryId, at),
+      acceptable: [sample.categoryId],
+    });
   }
   const checked = events.filter((event) => event.origin === "checked");
   for (const todo of data.todos) {
@@ -123,9 +151,37 @@ export function labelEvents(data: EvalExport): LabelEvent[] {
       && event.categoryId === todo.categoryId
       && Math.abs(event.at - at) <= DUPLICATE_WINDOW_MS);
     if (duplicate) continue;
-    events.push({ at, text: todo.text, normalizedText, categoryId: todo.categoryId, origin: "done-todo" });
+    events.push({
+      at, text: todo.text, normalizedText, categoryId: todo.categoryId, origin: "done-todo",
+      trusted: placedBy(data, normalizedText, todo.categoryId, at),
+      acceptable: [todo.categoryId],
+    });
   }
   return events.sort((a, b) => a.at - b.at);
+}
+
+/** Whether a person put this item into this category in the weeks before `at`. */
+function placedBy(data: EvalExport, normalizedText: string, categoryId: string, at: number): boolean {
+  return data.classifierHistory.some((sample) => {
+    if (!PLACEMENT_SOURCES.has(sample.source) || sample.categoryId !== categoryId) return false;
+    const placedAt = time(sample.createdAt);
+    return placedAt > 0 && placedAt <= at && at - placedAt <= PLACEMENT_WINDOW_MS
+      && (sample.normalizedText || normalizeItemText(sample.text)) === normalizedText;
+  });
+}
+
+/** Applies review verdicts: replaces the acceptable categories, or drops the event. */
+export function applyVerdicts(events: LabelEvent[], verdicts: Verdicts): LabelEvent[] {
+  return events.flatMap((event) => {
+    const verdict = verdicts.get(eventKey(event));
+    if (verdict === undefined) return [event];
+    if (verdict === null) return [];
+    return [{ ...event, acceptable: verdict, trusted: true }];
+  });
+}
+
+export function isRight(event: LabelEvent, categoryId: string | undefined): boolean {
+  return !!categoryId && event.acceptable.includes(categoryId);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -545,10 +601,22 @@ function seenBefore(normalizedText: string, context: EvalContext): boolean {
 export async function replay(
   data: EvalExport,
   methods: EvalMethod[],
-  options: { maxEvents?: number; onProgress?: (done: number, total: number) => void } = {},
+  options: {
+    maxEvents?: number;
+    /** Score only labels a person chose (see `LabelEvent.trusted`). */
+    trustedOnly?: boolean;
+    /** Score only events from this moment on; training still uses everything before each. */
+    since?: number;
+    verdicts?: Verdicts;
+    onProgress?: (done: number, total: number) => void;
+  } = {},
 ): Promise<MethodReport[]> {
+  // The methods see every label as the app would; only the scoring is narrowed.
   const allEvents = labelEvents(data);
-  const events = options.maxEvents ? allEvents.slice(-options.maxEvents) : allEvents;
+  let scored = options.verdicts ? applyVerdicts(allEvents, options.verdicts) : allEvents;
+  if (options.trustedOnly) scored = scored.filter((event) => event.trusted);
+  if (options.since) scored = scored.filter((event) => event.at >= options.since!);
+  const events = options.maxEvents ? scored.slice(-options.maxEvents) : scored;
   const results = new Map(methods.map((method) => [method.name, [] as EventResult[]]));
   for (const [index, event] of events.entries()) {
     const context = contextAt(data, allEvents, event.at);
@@ -588,7 +656,7 @@ export function score(results: EventResult[], thresholds?: Thresholds): Outcome 
   let seenCorrect = 0;
   for (const { event, coldStart, prediction: raw } of results) {
     const prediction = raw && thresholds ? withThresholds(raw, thresholds) : raw;
-    const right = !!raw && raw.categoryId === event.categoryId;
+    const right = isRight(event, raw?.categoryId);
     if (right) correct += 1;
     if (coldStart) {
       outcome.coldStart.events += 1;
@@ -613,7 +681,7 @@ export function score(results: EventResult[], thresholds?: Thresholds): Outcome 
 function confusion(results: EventResult[], names: Map<string, string>) {
   const counts = new Map<string, number>();
   for (const { event, prediction } of results) {
-    if (!prediction?.auto || prediction.categoryId === event.categoryId) continue;
+    if (!prediction?.auto || isRight(event, prediction.categoryId)) continue;
     const key = `${event.categoryId}\u0000${prediction.categoryId}`;
     counts.set(key, (counts.get(key) || 0) + 1);
   }
