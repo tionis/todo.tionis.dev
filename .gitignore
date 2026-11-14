@@ -49,3 +49,6 @@ next-env.d.ts
 
 # Classifier evaluation caches (scripts/evaluate-classifier.ts)
 .cache/
+
+# Agent stuff
+/.claude/
