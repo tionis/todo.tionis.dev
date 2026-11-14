@@ -1,0 +1,1715 @@
+{
+  "format": "smart-todos-list",
+  "version": 1,
+  "exportedAt": "2026-10-31T09:00:00.000Z",
+  "list": {
+    "id": "fixture",
+    "name": "Einkauf (synthetic)",
+    "slug": "einkauf",
+    "permission": "private-write",
+    "tags": null,
+    "hideCompleted": true,
+    "autoSortTodos": true,
+    "classifierAggressiveness": "normal",
+    "classifierResetAt": null,
+    "archivedAt": null,
+    "createdAt": "2026-08-25T09:00:00.000Z",
+    "updatedAt": "2026-10-31T09:00:00.000Z"
+  },
+  "categories": [
+    {
+      "id": "obst",
+      "name": "Obst & Gemüse",
+      "order": 0,
+      "classifierKeywords": "Apfel, Banane, Tomate",
+      "createdAt": "2026-08-25T09:00:00.000Z"
+    },
+    {
+      "id": "kuehl",
+      "name": "Kühlregal",
+      "order": 1,
+      "classifierKeywords": "Milch, Joghurt",
+      "createdAt": "2026-08-25T09:00:00.000Z"
+    },
+    {
+      "id": "brot",
+      "name": "Brot & Backwaren",
+      "order": 2,
+      "classifierKeywords": null,
+      "createdAt": "2026-08-25T09:00:00.000Z"
+    },
+    {
+      "id": "trocken",
+      "name": "Konserven & Trockenware",
+      "order": 3,
+      "classifierKeywords": "Nudeln, Reis",
+      "createdAt": "2026-08-25T09:00:00.000Z"
+    },
+    {
+      "id": "drogerie",
+      "name": "Drogerie",
+      "order": 4,
+      "classifierKeywords": null,
+      "createdAt": "2026-08-25T09:00:00.000Z"
+    },
+    {
+      "id": "edeka",
+      "name": "EDEKA",
+      "order": 5,
+      "classifierKeywords": null,
+      "createdAt": "2026-08-25T09:00:00.000Z"
+    }
+  ],
+  "todos": [
+    {
+      "id": "t1",
+      "text": "Bananen",
+      "done": true,
+      "order": 0,
+      "categoryId": "obst",
+      "createdAt": "2026-10-19T09:00:00.000Z",
+      "updatedAt": "2026-10-20T09:00:05.000Z"
+    },
+    {
+      "id": "t2",
+      "text": "Karotten",
+      "done": true,
+      "order": 1,
+      "categoryId": "obst",
+      "createdAt": "2026-10-19T09:01:00.000Z",
+      "updatedAt": "2026-10-20T09:00:50.000Z"
+    },
+    {
+      "id": "t3",
+      "text": "Gurke",
+      "done": true,
+      "order": 2,
+      "categoryId": "obst",
+      "createdAt": "2026-10-19T09:02:00.000Z",
+      "updatedAt": "2026-10-20T09:01:35.000Z"
+    },
+    {
+      "id": "t4",
+      "text": "Paprika rot",
+      "done": true,
+      "order": 3,
+      "categoryId": "obst",
+      "createdAt": "2026-10-19T09:03:00.000Z",
+      "updatedAt": "2026-10-20T09:02:20.000Z"
+    },
+    {
+      "id": "t5",
+      "text": "Kartoffeln",
+      "done": true,
+      "order": 4,
+      "categoryId": "obst",
+      "createdAt": "2026-10-19T09:04:00.000Z",
+      "updatedAt": "2026-10-20T09:03:05.000Z"
+    },
+    {
+      "id": "t6",
+      "text": "Zitronen",
+      "done": true,
+      "order": 5,
+      "categoryId": "obst",
+      "createdAt": "2026-10-19T09:05:00.000Z",
+      "updatedAt": "2026-10-20T09:03:50.000Z"
+    },
+    {
+      "id": "t7",
+      "text": "Milch",
+      "done": true,
+      "order": 6,
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-19T09:06:00.000Z",
+      "updatedAt": "2026-10-20T09:04:35.000Z"
+    },
+    {
+      "id": "t8",
+      "text": "Laugenbrezel",
+      "done": true,
+      "order": 7,
+      "categoryId": "brot",
+      "createdAt": "2026-10-19T09:07:00.000Z",
+      "updatedAt": "2026-10-20T09:05:20.000Z"
+    },
+    {
+      "id": "t9",
+      "text": "Spaghetti",
+      "done": true,
+      "order": 8,
+      "categoryId": "trocken",
+      "createdAt": "2026-10-19T09:08:00.000Z",
+      "updatedAt": "2026-10-20T09:06:05.000Z"
+    },
+    {
+      "id": "t10",
+      "text": "Haferflocken",
+      "done": true,
+      "order": 9,
+      "categoryId": "trocken",
+      "createdAt": "2026-10-19T09:09:00.000Z",
+      "updatedAt": "2026-10-20T09:06:50.000Z"
+    },
+    {
+      "id": "t11",
+      "text": "Mehl",
+      "done": true,
+      "order": 10,
+      "categoryId": "trocken",
+      "createdAt": "2026-10-19T09:10:00.000Z",
+      "updatedAt": "2026-10-20T09:07:35.000Z"
+    },
+    {
+      "id": "t12",
+      "text": "Tahini",
+      "done": true,
+      "order": 11,
+      "categoryId": "trocken",
+      "createdAt": "2026-10-19T09:11:00.000Z",
+      "updatedAt": "2026-10-20T09:08:20.000Z"
+    },
+    {
+      "id": "t13",
+      "text": "Kokosmilch Bio",
+      "done": true,
+      "order": 12,
+      "categoryId": "trocken",
+      "createdAt": "2026-10-19T09:12:00.000Z",
+      "updatedAt": "2026-10-20T09:09:05.000Z"
+    },
+    {
+      "id": "t14",
+      "text": "Sojasauce Kikkoman",
+      "done": true,
+      "order": 13,
+      "categoryId": "edeka",
+      "createdAt": "2026-10-19T09:13:00.000Z",
+      "updatedAt": "2026-10-20T09:09:50.000Z"
+    },
+    {
+      "id": "t-old",
+      "text": "Mehl",
+      "done": true,
+      "order": 99,
+      "categoryId": "trocken",
+      "createdAt": "2026-08-29T09:00:00.000Z",
+      "updatedAt": "2026-08-30T09:00:00.000Z"
+    },
+    {
+      "id": "t-open",
+      "text": "Kaffee",
+      "done": false,
+      "order": 100,
+      "categoryId": null,
+      "createdAt": "2026-10-31T09:00:00.000Z",
+      "updatedAt": null
+    }
+  ],
+  "classifierHistory": [
+    {
+      "id": "s1",
+      "text": "Äpfel",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "obst",
+      "createdAt": "2026-08-31T09:00:00.000Z"
+    },
+    {
+      "id": "s2",
+      "text": "Äpfel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-01T09:00:00.000Z"
+    },
+    {
+      "id": "s3",
+      "text": "Milch",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "kuehl",
+      "createdAt": "2026-08-31T09:01:00.000Z"
+    },
+    {
+      "id": "s4",
+      "text": "Milch",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-01T09:00:45.000Z"
+    },
+    {
+      "id": "s5",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "brot",
+      "createdAt": "2026-08-31T09:02:00.000Z"
+    },
+    {
+      "id": "s6",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "brot",
+      "createdAt": "2026-08-31T09:02:30.000Z"
+    },
+    {
+      "id": "s7",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "kuehl",
+      "createdAt": "2026-08-31T09:02:30.000Z"
+    },
+    {
+      "id": "s8",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-01T09:01:30.000Z"
+    },
+    {
+      "id": "s9",
+      "text": "Gouda",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "trocken",
+      "createdAt": "2026-08-31T09:03:00.000Z"
+    },
+    {
+      "id": "s10",
+      "text": "Gouda",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "trocken",
+      "createdAt": "2026-08-31T09:03:30.000Z"
+    },
+    {
+      "id": "s11",
+      "text": "Gouda",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "kuehl",
+      "createdAt": "2026-08-31T09:03:30.000Z"
+    },
+    {
+      "id": "s12",
+      "text": "Gouda",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-01T09:02:15.000Z"
+    },
+    {
+      "id": "s13",
+      "text": "Eier",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "kuehl",
+      "createdAt": "2026-08-31T09:04:30.000Z"
+    },
+    {
+      "id": "s14",
+      "text": "Eier",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-01T09:03:00.000Z"
+    },
+    {
+      "id": "s15",
+      "text": "Frischkäse",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "kuehl",
+      "createdAt": "2026-08-31T09:05:00.000Z"
+    },
+    {
+      "id": "s16",
+      "text": "Frischkäse",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-01T09:03:45.000Z"
+    },
+    {
+      "id": "s17",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "edeka",
+      "createdAt": "2026-08-31T09:06:00.000Z"
+    },
+    {
+      "id": "s18",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "edeka",
+      "createdAt": "2026-08-31T09:06:30.000Z"
+    },
+    {
+      "id": "s19",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "brot",
+      "createdAt": "2026-08-31T09:06:30.000Z"
+    },
+    {
+      "id": "s20",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-09-01T09:04:30.000Z"
+    },
+    {
+      "id": "s21",
+      "text": "Brötchen",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "brot",
+      "createdAt": "2026-08-31T09:07:00.000Z"
+    },
+    {
+      "id": "s22",
+      "text": "Brötchen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-09-01T09:05:15.000Z"
+    },
+    {
+      "id": "s23",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "brot",
+      "createdAt": "2026-08-31T09:08:00.000Z"
+    },
+    {
+      "id": "s24",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "brot",
+      "createdAt": "2026-08-31T09:08:30.000Z"
+    },
+    {
+      "id": "s25",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "trocken",
+      "createdAt": "2026-08-31T09:08:30.000Z"
+    },
+    {
+      "id": "s26",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-01T09:06:00.000Z"
+    },
+    {
+      "id": "s27",
+      "text": "Mehl",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "trocken",
+      "createdAt": "2026-08-31T09:09:00.000Z"
+    },
+    {
+      "id": "s28",
+      "text": "Mehl",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-01T09:06:45.000Z"
+    },
+    {
+      "id": "s29",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "kuehl",
+      "createdAt": "2026-08-31T09:10:00.000Z"
+    },
+    {
+      "id": "s30",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "kuehl",
+      "createdAt": "2026-08-31T09:10:30.000Z"
+    },
+    {
+      "id": "s31",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "drogerie",
+      "createdAt": "2026-08-31T09:10:30.000Z"
+    },
+    {
+      "id": "s32",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-01T09:07:30.000Z"
+    },
+    {
+      "id": "s33",
+      "text": "Duschgel",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "drogerie",
+      "createdAt": "2026-08-31T09:11:00.000Z"
+    },
+    {
+      "id": "s34",
+      "text": "Duschgel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-01T09:08:15.000Z"
+    },
+    {
+      "id": "s35",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "edeka",
+      "createdAt": "2026-08-31T09:12:00.000Z"
+    },
+    {
+      "id": "s36",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-01T09:09:00.000Z"
+    },
+    {
+      "id": "s37",
+      "text": "Bananen",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "obst",
+      "createdAt": "2026-09-07T09:00:00.000Z"
+    },
+    {
+      "id": "s38",
+      "text": "Bananen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-08T09:00:00.000Z"
+    },
+    {
+      "id": "s39",
+      "text": "Karotten",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-07T09:01:00.000Z"
+    },
+    {
+      "id": "s40",
+      "text": "Karotten",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-07T09:01:30.000Z"
+    },
+    {
+      "id": "s41",
+      "text": "Karotten",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "obst",
+      "createdAt": "2026-09-07T09:01:30.000Z"
+    },
+    {
+      "id": "s42",
+      "text": "Karotten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-08T09:00:45.000Z"
+    },
+    {
+      "id": "s43",
+      "text": "Paprika rot",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "obst",
+      "createdAt": "2026-09-07T09:02:00.000Z"
+    },
+    {
+      "id": "s44",
+      "text": "Paprika rot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-08T09:01:30.000Z"
+    },
+    {
+      "id": "s45",
+      "text": "Kartoffeln",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-07T09:03:00.000Z"
+    },
+    {
+      "id": "s46",
+      "text": "Kartoffeln",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-07T09:03:30.000Z"
+    },
+    {
+      "id": "s47",
+      "text": "Kartoffeln",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "obst",
+      "createdAt": "2026-09-07T09:03:30.000Z"
+    },
+    {
+      "id": "s48",
+      "text": "Kartoffeln",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-08T09:02:15.000Z"
+    },
+    {
+      "id": "s49",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-08T09:03:00.000Z"
+    },
+    {
+      "id": "s50",
+      "text": "Sahne",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-07T09:05:00.000Z"
+    },
+    {
+      "id": "s51",
+      "text": "Sahne",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-07T09:05:30.000Z"
+    },
+    {
+      "id": "s52",
+      "text": "Sahne",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-07T09:05:30.000Z"
+    },
+    {
+      "id": "s53",
+      "text": "Sahne",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-08T09:03:45.000Z"
+    },
+    {
+      "id": "s54",
+      "text": "Frischkäse",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-08T09:04:30.000Z"
+    },
+    {
+      "id": "s55",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-09-08T09:05:15.000Z"
+    },
+    {
+      "id": "s56",
+      "text": "Reis",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-07T09:08:00.000Z"
+    },
+    {
+      "id": "s57",
+      "text": "Reis",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-08T09:06:00.000Z"
+    },
+    {
+      "id": "s58",
+      "text": "Kichererbsen",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-07T09:09:00.000Z"
+    },
+    {
+      "id": "s59",
+      "text": "Kichererbsen",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-07T09:09:30.000Z"
+    },
+    {
+      "id": "s60",
+      "text": "Kichererbsen",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-07T09:09:30.000Z"
+    },
+    {
+      "id": "s61",
+      "text": "Kichererbsen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-08T09:06:45.000Z"
+    },
+    {
+      "id": "s62",
+      "text": "Zahnpasta",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-07T09:10:00.000Z"
+    },
+    {
+      "id": "s63",
+      "text": "Zahnpasta",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-08T09:07:30.000Z"
+    },
+    {
+      "id": "s64",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-08T09:08:15.000Z"
+    },
+    {
+      "id": "s65",
+      "text": "Duschgel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-08T09:09:00.000Z"
+    },
+    {
+      "id": "s66",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-08T09:09:45.000Z"
+    },
+    {
+      "id": "s67",
+      "text": "Fischsauce",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-07T09:14:00.000Z"
+    },
+    {
+      "id": "s68",
+      "text": "Fischsauce",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-07T09:14:30.000Z"
+    },
+    {
+      "id": "s69",
+      "text": "Fischsauce",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-07T09:14:30.000Z"
+    },
+    {
+      "id": "s70",
+      "text": "Fischsauce",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-08T09:10:30.000Z"
+    },
+    {
+      "id": "s71",
+      "text": "Miso Paste",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-07T09:15:00.000Z"
+    },
+    {
+      "id": "s72",
+      "text": "Miso Paste",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-07T09:15:30.000Z"
+    },
+    {
+      "id": "s73",
+      "text": "Miso Paste",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-07T09:15:30.000Z"
+    },
+    {
+      "id": "s74",
+      "text": "Miso Paste",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-08T09:11:15.000Z"
+    },
+    {
+      "id": "s75",
+      "text": "Bananen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-15T09:00:00.000Z"
+    },
+    {
+      "id": "s76",
+      "text": "Äpfel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-15T09:00:45.000Z"
+    },
+    {
+      "id": "s77",
+      "text": "Zwiebeln",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "obst",
+      "createdAt": "2026-09-14T09:02:00.000Z"
+    },
+    {
+      "id": "s78",
+      "text": "Zwiebeln",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-15T09:01:30.000Z"
+    },
+    {
+      "id": "s79",
+      "text": "Karotten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-15T09:02:15.000Z"
+    },
+    {
+      "id": "s80",
+      "text": "Paprika rot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-15T09:03:00.000Z"
+    },
+    {
+      "id": "s81",
+      "text": "Gouda",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-15T09:03:45.000Z"
+    },
+    {
+      "id": "s82",
+      "text": "Sahne",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-15T09:04:30.000Z"
+    },
+    {
+      "id": "s83",
+      "text": "Frischkäse",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-15T09:05:15.000Z"
+    },
+    {
+      "id": "s84",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-15T09:06:00.000Z"
+    },
+    {
+      "id": "s85",
+      "text": "Zahnpasta",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-15T09:06:45.000Z"
+    },
+    {
+      "id": "s86",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-15T09:07:30.000Z"
+    },
+    {
+      "id": "s87",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-14T09:11:00.000Z"
+    },
+    {
+      "id": "s88",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-15T09:08:15.000Z"
+    },
+    {
+      "id": "s89",
+      "text": "Sojasauce Kikkoman",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-14T09:12:00.000Z"
+    },
+    {
+      "id": "s90",
+      "text": "Sojasauce Kikkoman",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-14T09:12:30.000Z"
+    },
+    {
+      "id": "s91",
+      "text": "Sojasauce Kikkoman",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-14T09:12:30.000Z"
+    },
+    {
+      "id": "s92",
+      "text": "Sojasauce Kikkoman",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-15T09:09:00.000Z"
+    },
+    {
+      "id": "s93",
+      "text": "Fischsauce",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-15T09:09:45.000Z"
+    },
+    {
+      "id": "s94",
+      "text": "Miso Paste",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-15T09:10:30.000Z"
+    },
+    {
+      "id": "s95",
+      "text": "Bananen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-22T09:00:00.000Z"
+    },
+    {
+      "id": "s96",
+      "text": "Äpfel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-22T09:00:45.000Z"
+    },
+    {
+      "id": "s97",
+      "text": "Kartoffeln",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-22T09:01:30.000Z"
+    },
+    {
+      "id": "s98",
+      "text": "Milch",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-22T09:02:15.000Z"
+    },
+    {
+      "id": "s99",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-22T09:03:00.000Z"
+    },
+    {
+      "id": "s100",
+      "text": "Gouda",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-22T09:03:45.000Z"
+    },
+    {
+      "id": "s101",
+      "text": "Eier",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-22T09:04:30.000Z"
+    },
+    {
+      "id": "s102",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-09-22T09:05:15.000Z"
+    },
+    {
+      "id": "s103",
+      "text": "Brötchen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-09-22T09:06:00.000Z"
+    },
+    {
+      "id": "s104",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-22T09:06:45.000Z"
+    },
+    {
+      "id": "s105",
+      "text": "Haferflocken",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-21T09:10:00.000Z"
+    },
+    {
+      "id": "s106",
+      "text": "Haferflocken",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-22T09:07:30.000Z"
+    },
+    {
+      "id": "s107",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-22T09:08:15.000Z"
+    },
+    {
+      "id": "s108",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-22T09:09:00.000Z"
+    },
+    {
+      "id": "s109",
+      "text": "Miso Paste",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-22T09:09:45.000Z"
+    },
+    {
+      "id": "s110",
+      "text": "Äpfel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-29T09:00:00.000Z"
+    },
+    {
+      "id": "s111",
+      "text": "Karotten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-29T09:00:45.000Z"
+    },
+    {
+      "id": "s112",
+      "text": "Gurke",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "brot",
+      "createdAt": "2026-09-28T09:02:00.000Z"
+    },
+    {
+      "id": "s113",
+      "text": "Gurke",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "brot",
+      "createdAt": "2026-09-28T09:02:30.000Z"
+    },
+    {
+      "id": "s114",
+      "text": "Gurke",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "obst",
+      "createdAt": "2026-09-28T09:02:30.000Z"
+    },
+    {
+      "id": "s115",
+      "text": "Gurke",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-29T09:01:30.000Z"
+    },
+    {
+      "id": "s116",
+      "text": "Paprika rot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-29T09:02:15.000Z"
+    },
+    {
+      "id": "s117",
+      "text": "Kartoffeln",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-09-29T09:03:00.000Z"
+    },
+    {
+      "id": "s118",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-29T09:03:45.000Z"
+    },
+    {
+      "id": "s119",
+      "text": "Gouda",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-29T09:04:30.000Z"
+    },
+    {
+      "id": "s120",
+      "text": "Eier",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-29T09:05:15.000Z"
+    },
+    {
+      "id": "s121",
+      "text": "Frischkäse",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-09-29T09:06:00.000Z"
+    },
+    {
+      "id": "s122",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-09-29T09:06:45.000Z"
+    },
+    {
+      "id": "s123",
+      "text": "Brötchen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-09-29T09:07:30.000Z"
+    },
+    {
+      "id": "s124",
+      "text": "Spaghetti",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-28T09:11:00.000Z"
+    },
+    {
+      "id": "s125",
+      "text": "Spaghetti",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-28T09:11:30.000Z"
+    },
+    {
+      "id": "s126",
+      "text": "Spaghetti",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-28T09:11:30.000Z"
+    },
+    {
+      "id": "s127",
+      "text": "Spaghetti",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-29T09:08:15.000Z"
+    },
+    {
+      "id": "s128",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-29T09:09:00.000Z"
+    },
+    {
+      "id": "s129",
+      "text": "Haferflocken",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-09-29T09:09:45.000Z"
+    },
+    {
+      "id": "s130",
+      "text": "Zahnpasta",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-29T09:10:30.000Z"
+    },
+    {
+      "id": "s131",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-29T09:11:15.000Z"
+    },
+    {
+      "id": "s132",
+      "text": "Toilettenpapier",
+      "normalizedText": null,
+      "source": "auto",
+      "categoryId": "obst",
+      "createdAt": "2026-09-28T09:16:00.000Z"
+    },
+    {
+      "id": "s133",
+      "text": "Toilettenpapier",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "obst",
+      "createdAt": "2026-09-28T09:16:30.000Z"
+    },
+    {
+      "id": "s134",
+      "text": "Toilettenpapier",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-28T09:16:30.000Z"
+    },
+    {
+      "id": "s135",
+      "text": "Toilettenpapier",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-09-29T09:12:00.000Z"
+    },
+    {
+      "id": "s136",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-29T09:12:45.000Z"
+    },
+    {
+      "id": "s137",
+      "text": "Sojasauce Kikkoman",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-29T09:13:30.000Z"
+    },
+    {
+      "id": "s138",
+      "text": "Fischsauce",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-29T09:14:15.000Z"
+    },
+    {
+      "id": "s139",
+      "text": "Miso Paste",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-09-29T09:15:00.000Z"
+    },
+    {
+      "id": "s140",
+      "text": "Bananen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-06T09:00:00.000Z"
+    },
+    {
+      "id": "s141",
+      "text": "Äpfel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-06T09:00:45.000Z"
+    },
+    {
+      "id": "s142",
+      "text": "Zitronen",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "obst",
+      "createdAt": "2026-10-05T09:02:00.000Z"
+    },
+    {
+      "id": "s143",
+      "text": "Zitronen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-06T09:01:30.000Z"
+    },
+    {
+      "id": "s144",
+      "text": "Milch",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-06T09:02:15.000Z"
+    },
+    {
+      "id": "s145",
+      "text": "Sahne",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-06T09:03:00.000Z"
+    },
+    {
+      "id": "s146",
+      "text": "Toastbrot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-10-06T09:03:45.000Z"
+    },
+    {
+      "id": "s147",
+      "text": "Brötchen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-10-06T09:04:30.000Z"
+    },
+    {
+      "id": "s148",
+      "text": "Vollkornbrot",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "brot",
+      "createdAt": "2026-10-05T09:07:00.000Z"
+    },
+    {
+      "id": "s149",
+      "text": "Vollkornbrot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-10-06T09:05:15.000Z"
+    },
+    {
+      "id": "s150",
+      "text": "Laugenbrezel",
+      "normalizedText": null,
+      "source": "quick-add",
+      "categoryId": "brot",
+      "createdAt": "2026-10-05T09:08:00.000Z"
+    },
+    {
+      "id": "s151",
+      "text": "Laugenbrezel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-10-06T09:06:00.000Z"
+    },
+    {
+      "id": "s152",
+      "text": "Spaghetti",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-06T09:06:45.000Z"
+    },
+    {
+      "id": "s153",
+      "text": "Spülmittel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-10-06T09:07:30.000Z"
+    },
+    {
+      "id": "s154",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "edeka",
+      "createdAt": "2026-10-05T09:11:30.000Z"
+    },
+    {
+      "id": "s155",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-05T09:11:30.000Z"
+    },
+    {
+      "id": "s156",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-06T09:08:15.000Z"
+    },
+    {
+      "id": "s157",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "negative",
+      "categoryId": "edeka",
+      "createdAt": "2026-10-05T09:12:30.000Z"
+    },
+    {
+      "id": "s158",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "manual-move",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-05T09:12:30.000Z"
+    },
+    {
+      "id": "s159",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-06T09:09:00.000Z"
+    },
+    {
+      "id": "s160",
+      "text": "Bananen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-13T09:00:00.000Z"
+    },
+    {
+      "id": "s161",
+      "text": "Milch",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-13T09:00:45.000Z"
+    },
+    {
+      "id": "s162",
+      "text": "Joghurt natur",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-13T09:01:30.000Z"
+    },
+    {
+      "id": "s163",
+      "text": "Sahne",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-13T09:02:15.000Z"
+    },
+    {
+      "id": "s164",
+      "text": "Frischkäse",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-13T09:03:00.000Z"
+    },
+    {
+      "id": "s165",
+      "text": "Vollkornbrot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-10-13T09:03:45.000Z"
+    },
+    {
+      "id": "s166",
+      "text": "Laugenbrezel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-10-13T09:04:30.000Z"
+    },
+    {
+      "id": "s167",
+      "text": "Spaghetti",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-13T09:05:15.000Z"
+    },
+    {
+      "id": "s168",
+      "text": "Passierte Tomaten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-13T09:06:00.000Z"
+    },
+    {
+      "id": "s169",
+      "text": "Kichererbsen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-13T09:06:45.000Z"
+    },
+    {
+      "id": "s170",
+      "text": "Haferflocken",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-13T09:07:30.000Z"
+    },
+    {
+      "id": "s171",
+      "text": "Mehl",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-13T09:08:15.000Z"
+    },
+    {
+      "id": "s172",
+      "text": "Duschgel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "drogerie",
+      "createdAt": "2026-10-13T09:09:00.000Z"
+    },
+    {
+      "id": "s173",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-13T09:09:45.000Z"
+    },
+    {
+      "id": "s174",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-13T09:10:30.000Z"
+    },
+    {
+      "id": "s175",
+      "text": "Bananen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    },
+    {
+      "id": "s176",
+      "text": "Karotten",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-20T09:00:45.000Z"
+    },
+    {
+      "id": "s177",
+      "text": "Gurke",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-20T09:01:30.000Z"
+    },
+    {
+      "id": "s178",
+      "text": "Paprika rot",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-20T09:02:15.000Z"
+    },
+    {
+      "id": "s179",
+      "text": "Kartoffeln",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-20T09:03:00.000Z"
+    },
+    {
+      "id": "s180",
+      "text": "Zitronen",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "obst",
+      "createdAt": "2026-10-20T09:03:45.000Z"
+    },
+    {
+      "id": "s181",
+      "text": "Milch",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "kuehl",
+      "createdAt": "2026-10-20T09:04:30.000Z"
+    },
+    {
+      "id": "s182",
+      "text": "Laugenbrezel",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "brot",
+      "createdAt": "2026-10-20T09:05:15.000Z"
+    },
+    {
+      "id": "s183",
+      "text": "Spaghetti",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-20T09:06:00.000Z"
+    },
+    {
+      "id": "s184",
+      "text": "Haferflocken",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-20T09:06:45.000Z"
+    },
+    {
+      "id": "s185",
+      "text": "Mehl",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-20T09:07:30.000Z"
+    },
+    {
+      "id": "s186",
+      "text": "Tahini",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-20T09:08:15.000Z"
+    },
+    {
+      "id": "s187",
+      "text": "Kokosmilch Bio",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "trocken",
+      "createdAt": "2026-10-20T09:09:00.000Z"
+    },
+    {
+      "id": "s188",
+      "text": "Sojasauce Kikkoman",
+      "normalizedText": null,
+      "source": "checked",
+      "categoryId": "edeka",
+      "createdAt": "2026-10-20T09:09:45.000Z"
+    }
+  ]
+}

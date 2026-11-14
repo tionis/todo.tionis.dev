@@ -201,3 +201,28 @@ Signing in replaces the session the browser already had. `POST /api/auth/logout`
 - `npm test` - backend tests (including `api-routes.test.mjs`, which runs the real server through `backend/test-support.mjs`) and unit tests.
 - `npm run test:pwa:e2e` - builds without a backend URL, then runs Playwright: the PWA suite against a mock backend (`tests/pwa-e2e-server.mjs`) and the `sync` project against the real backend with two signed-in members (`tests/sync-e2e-server.mjs`).
 - `npm run benchmark:memory` - synthetic backend memory benchmark.
+
+## Classifier evaluation
+
+`npm run eval:classifier -- <export.json>` replays a list export (**List Settings → Download
+Export**) in time order and scores classifiers against what people actually did: every
+`checked` or `manual-move` sample, and every done todo with a category, is an event, and each
+method only sees what existed before it (`lib/classifier-eval.ts`). It reports, per method,
+how many items would have been sorted automatically (right or wrong), suggested, or left
+alone, plus top-1 accuracy for items placed before ("seen") and new ones ("cold"), and the
+most common wrong auto-sorts.
+
+Methods (`--methods`, comma-separated): `current` (the app's classifier), `lookup-first`
+(where a person last placed the same item, else `current`), `naive-bayes` (words and character
+trigrams), `jev` and `jev-fallback` (lookup, then `current` if it would auto-sort, else Jev).
+Naive Bayes and Jev use thresholds fixed up front; the printed sweep shows other thresholds
+on the same predictions and, since it is tuned on the data being scored, is an upper bound.
+`--max-events N` replays only the last N events; `--json` prints the results as JSON.
+
+`jev` calls TypeSafe's Jev decision model through AIMLAPI and therefore **sends item texts and
+category names to AIMLAPI/TypeSafe**. It needs `AIMLAPI_KEY`; `JEV_MODEL` (default
+`typesafe/jev-1.14`) and `JEV_BASE_URL` (e.g. a local Laya server's `/v1/systemone`) are
+optional. Requests run one at a time, are capped by `--max-requests` (default 300) and cached
+in `.cache/jev/`. This is evaluation only: the app's classifier never calls a remote model.
+
+`tests/fixtures/classifier-eval-list.json` is a synthetic list for trying it out.
