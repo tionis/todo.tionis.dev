@@ -84,6 +84,17 @@ function scheduleBackgroundSync() {
   ).catch(() => {});
 }
 
+// Every change to a list's document reads `state.document`, awaits IndexedDB and then assigns
+// the result. Two changes interleaving across that await would both start from the same
+// document and the later assignment would drop the earlier change (typing the next item while
+// the previous one is saving lost it), so they run one at a time per list.
+const documentLocks = new Map<string, Promise<unknown>>();
+function withDocumentLock<T>(listId: string, task: () => Promise<T>): Promise<T> {
+  const run = (documentLocks.get(listId) ?? Promise.resolve()).then(task);
+  documentLocks.set(listId, run.catch(() => undefined));
+  return run;
+}
+
 async function persistDocumentUpload(listId: string, document: Automerge.Doc<ListDocument>) {
   if (typeof indexedDB === "undefined") throw new Error("Offline storage is not available");
   const bytes = Automerge.save(document);
@@ -206,7 +217,7 @@ function connectList(listId: string) {
     pendingDelta = undefined;
     await applyServerState(remoteBytes, delta?.heads, !!delta);
   };
-  const applyServerState = async (remoteBytes: Uint8Array | undefined, remoteHeads?: string[], incremental = false) => {
+  const applyServerState = (remoteBytes: Uint8Array | undefined, remoteHeads?: string[], incremental = false) => withDocumentLock(listId, async () => {
     const applied = applySyncFrame(
       Automerge,
       state.document,
@@ -224,7 +235,7 @@ function connectList(listId: string) {
       socket.send(bytes);
     }
     emit();
-  };
+  });
   socket.onmessage = (event) => {
     frames = frames.then(() => handleFrame(event.data)).catch((error) => {
       console.error("Could not apply synchronized changes", error);
@@ -259,9 +270,12 @@ async function registerList(metadata: any, serializedDocument?: string) {
     : metadata;
   if (metadataAccess) state.access = metadataAccess;
   if (fetchedDocument) {
-    const reconciled = reconcileRemoteDocument(Automerge, state.document, fetchedDocument, state.access);
-    state.document = reconciled.document;
-    await writeLocalDocument(metadata.id, reconciled.document);
+    const listState = state;
+    await withDocumentLock(metadata.id, async () => {
+      const reconciled = reconcileRemoteDocument(Automerge, listState.document, fetchedDocument, listState.access);
+      listState.document = reconciled.document;
+      await writeLocalDocument(metadata.id, reconciled.document);
+    });
   }
   connectList(metadata.id);
 }
@@ -642,9 +656,11 @@ async function transact(input: any) {
     const state = lists.get(classifierReset.listId);
     if (!state) throw new Error("List is not loaded");
     const resetAt = operations.find((operation) => operation.entity === "todoLists")?.data?.classifierResetAt;
-    const nextDocument = applyContentOperations(state.document || emptyDocument(), resetDeletes);
-    await writeLocalDocument(classifierReset.listId, nextDocument);
-    state.document = nextDocument;
+    await withDocumentLock(classifierReset.listId, async () => {
+      const nextDocument = applyContentOperations(state.document || emptyDocument(), resetDeletes);
+      await writeLocalDocument(classifierReset.listId, nextDocument);
+      state.document = nextDocument;
+    });
     applyOptimisticMetadata(operations, listAssociations);
     const queued = await enqueueRequest({ listId: classifierReset.listId, method: "POST", path: `/api/lists/${classifierReset.listId}/classifier/reset`, body: { resetAt } });
     await flushOutbox();
@@ -686,19 +702,21 @@ async function transact(input: any) {
       for (const [listId, content] of contentByList) {
         const state = lists.get(listId);
         if (!state) throw new Error("List is not loaded");
-        const nextDocument = applyContentOperations(state.document || emptyDocument(), content);
-        const nextBytes = Automerge.save(nextDocument);
-        if (nextBytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
-        const queued = await persistDocumentUpload(listId, nextDocument);
-        queuedContent.push(queued);
-        state.document = nextDocument;
-        if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") {
-          try {
-            state.socket.send(syncPayload(Automerge, nextDocument, state.serverHeads));
-          } catch {
-            state.socket.close(1011, "Sync retry required");
+        await withDocumentLock(listId, async () => {
+          const nextDocument = applyContentOperations(state.document || emptyDocument(), content);
+          const nextBytes = Automerge.save(nextDocument);
+          if (nextBytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("This list is too large to synchronize safely");
+          const queued = await persistDocumentUpload(listId, nextDocument);
+          queuedContent.push(queued);
+          state.document = nextDocument;
+          if (state.socket?.readyState === WebSocket.OPEN && state.access === "write") {
+            try {
+              state.socket.send(syncPayload(Automerge, nextDocument, state.serverHeads));
+            } catch {
+              state.socket.close(1011, "Sync retry required");
+            }
           }
-        }
+        });
       }
     },
   ]);

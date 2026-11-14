@@ -175,14 +175,32 @@ test('categories can be grouped and restock items are flagged, shared and hidden
   await expect(alice.page.getByRole('button', { name: 'Collapse Drogerie' })).toBeHidden();
 });
 
-test('typing the next item while the previous one is still saving keeps both', async ({ browser }) => {
+test('local adds survive saves and incoming changes overlapping them', async ({ browser }) => {
   const alice = await openList(await browser.newContext(), 'alice-e2e-session');
-  const input = alice.page.getByPlaceholder('What needs to be done?');
-  for (const text of ['Hafermilch', 'Linsen', 'Kichererbsen']) {
-    await input.fill(text);
-    await input.press('Enter');
+  const bob = await openList(await browser.newContext(), 'bob-e2e-session');
+  // A slow CPU stretches each save, so the next add and Bob's incoming changes arrive before it
+  // finishes, as on CI.
+  const cdp = await alice.page.context().newCDPSession(alice.page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+  const run = Date.now().toString(36);
+  const aliceItems = ['Hafermilch', 'Linsen', 'Kichererbsen', 'Tofu'].map((text) => `${text} ${run}`);
+  const bobItems = ['Reis', 'Bulgur', 'Couscous', 'Polenta'].map((text) => `${text} ${run}`);
+  const typeAll = async (page: Page, items: string[]) => {
+    const input = page.getByPlaceholder('What needs to be done?');
+    for (const text of items) {
+      await input.fill(text);
+      await input.press('Enter');
+    }
+  };
+  await Promise.all([typeAll(alice.page, aliceItems), typeAll(bob.page, bobItems)]);
+  for (const text of [...aliceItems, ...bobItems]) {
+    await expect(alice.page.getByText(text, { exact: true })).toBeVisible({ timeout: 15_000 });
   }
-  for (const text of ['Hafermilch', 'Linsen', 'Kichererbsen']) {
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  // And they were all stored and synchronized, not just shown.
+  await alice.page.reload();
+  for (const text of [...aliceItems, ...bobItems]) {
     await expect(alice.page.getByText(text, { exact: true })).toBeVisible();
+    await expect(bob.page.getByText(text, { exact: true })).toBeVisible();
   }
 });
