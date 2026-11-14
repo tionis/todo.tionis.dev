@@ -116,6 +116,9 @@ The classifier is local and deterministic; it never calls a remote model. Rules 
 - category keyword hints come from the category's `classifierKeywords`
 - aggressiveness (`conservative`, `normal`, `aggressive`) and a reset time come from the
   list settings
+- normalization (`normalizeItemText`) drops case, diacritics, punctuation, quantities and
+  units ("2 Zehen Knoblauch" is "knoblauch"); it is idempotent, and stored `normalizedText`
+  is normalized again on use, so changing the rules also applies to old samples
 - fuzzy matching: token normalization, simple stemming, edit distance, transpositions,
   bigram similarity, containment and compound expansion from known vocabulary
 

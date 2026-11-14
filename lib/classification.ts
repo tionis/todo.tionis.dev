@@ -141,36 +141,42 @@ const STOP_WORDS = new Set([
   "the",
   "und",
   "von",
+  "zum",
+  "zur",
 ]);
 
-const UNIT_WORDS = new Set([
-  "btl",
-  "dose",
-  "dosen",
-  "g",
-  "glas",
-  "glaeser",
-  "kg",
-  "l",
-  "ml",
-  "pack",
-  "packs",
-  "pkg",
-  "stk",
-  "stueck",
-  "x",
-]);
+// Quantities and units, as they come with recipe ingredients ("2 Zehen Knoblauch",
+// "1 Packung Mozzarella"). Spelled as after normalization: lowercase, no diacritics, ß as ss.
+const QUANTITY_UNITS = [
+  "becher", "beutel", "btl", "bund", "cm", "dose", "dosen", "el", "flasche", "flaschen", "g",
+  "glas", "glaeser", "glaser", "kg", "kopf", "kopfe", "l", "ml", "pack", "packs", "packung",
+  "packungen", "pck", "pkg", "prise", "prisen", "scheibe", "scheiben", "stk", "stuck", "stueck",
+  "tl", "x", "zehe", "zehen", "zweig", "zweige",
+].sort((a, b) => b.length - a.length);
+const UNIT_WORDS = new Set(QUANTITY_UNITS);
+const UNIT_PATTERN = QUANTITY_UNITS.join("|");
+/** A number or range ("2", "1,5", "30-40") with an optional unit right after it. */
+const QUANTITY = new RegExp(`\\b\\d+(?:[,.]\\d+)?(?:\\s*[-\u2013]\\s*\\d+(?:[,.]\\d+)?)?\\s*(?:${UNIT_PATTERN})?\\b`, "g");
+/** Units left at the start once the number is gone ("packung mozzarella"), if a word follows. */
+const LEADING_UNITS = new RegExp(`^(?:(?:${UNIT_PATTERN}) )+(?=[a-z0-9])`);
 
+/**
+ * The text an item is matched by: lowercase, without diacritics, punctuation, quantities and
+ * units, so "1 Packung Mozzarella" and "Mozzarella" are the same item. Idempotent, which
+ * matters because samples store the normalized text from when they were recorded.
+ */
 export function normalizeItemText(text: string): string {
   return text
     .toLowerCase()
     .replace(/\u00df/g, "ss")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\b\d+([,.]\d+)?\s*(x|g|kg|ml|l|stk|stuck|stueck|pack|packs|pkg|dose|dosen|glas|glaeser|btl)?\b/g, " ")
+    .replace(QUANTITY, " ")
+    .replace(/\bx\s*\d+\b/g, " ")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(LEADING_UNITS, "");
 }
 
 export function tokenizeItemText(text: string): string[] {
@@ -368,7 +374,7 @@ function buildClassifierModel(
     const example = toTrainingExample(
       sample.normalizedText || sample.text,
       sample.sublist.id,
-      !!sample.normalizedText,
+      false,
       source,
       sample.createdAt,
     );

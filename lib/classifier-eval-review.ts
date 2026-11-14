@@ -9,6 +9,7 @@
 //   <category>      this category is right (a unique prefix of its name is enough)
 //   <cat> | <cat>   any of these is right (e.g. a drink bought at either store)
 //   skip            leave the event out (unclear, or not worth scoring)
+import { normalizeItemText } from "./classification";
 import { eventKey, type EvalCategory, type LabelEvent, type MethodReport, type Verdicts } from "./classifier-eval";
 
 const HEADER = ["key", "date", "item", "label", "label trusted", "methods", "verdict"];
@@ -96,9 +97,15 @@ export function parseVerdicts(text: string, categories: EvalCategory[], events: 
   const verdictColumn = header?.indexOf("verdict") ?? -1;
   if (keyColumn < 0 || verdictColumn < 0) throw new Error("The review sheet needs a key and a verdict column");
   const byKey = new Map(events.map((event) => [eventKey(event), event]));
+  // Keys hold the item's normalized text; re-normalizing lets a sheet survive later changes to
+  // the normalization (it is idempotent).
+  const currentKey = (key: string) => {
+    const space = key.indexOf(" ");
+    return space < 0 ? key : `${key.slice(0, space)} ${normalizeItemText(key.slice(space + 1))}`;
+  };
   const verdicts: Verdicts = new Map();
   rows.forEach((row, index) => {
-    const key = row[keyColumn]?.trim();
+    const key = row[keyColumn] ? currentKey(row[keyColumn].trim()) : "";
     const verdict = (row[verdictColumn] ?? "").trim();
     if (!key || !verdict) return;
     const event = byKey.get(key);

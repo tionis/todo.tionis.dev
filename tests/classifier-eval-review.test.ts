@@ -81,3 +81,12 @@ test("verdicts reject ambiguous or unknown categories and unknown events", () =>
   assert.throws(() => parseVerdicts("key,verdict\n2020-01-01T00:00:00.000Z x,ok", data.categories, events), /no event/);
   assert.throws(() => parseVerdicts("item,verdict\nx,ok", data.categories, events), /key and a verdict column/);
 });
+
+test("a sheet written before a change to the normalization still finds its events", () => {
+  const data = list();
+  data.classifierHistory.push({ id: "6", text: "1 Packung Tahini", source: "checked", categoryId: "edeka", createdAt: day(6) });
+  const events = labelEvents(data);
+  const oldKey = `${new Date(day(6)).toISOString()} packung tahini`;
+  const verdicts = parseVerdicts(`key,verdict\n${oldKey},ok`, data.categories, events);
+  assert.deepEqual([...verdicts.keys()], [`${new Date(day(6)).toISOString()} tahini`]);
+});

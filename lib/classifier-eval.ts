@@ -131,7 +131,7 @@ export function labelEvents(data: EvalExport): LabelEvent[] {
     if (!LABEL_SOURCES.has(sample.source) || !sample.categoryId || !categoryIds.has(sample.categoryId)) continue;
     const at = time(sample.createdAt);
     if (!at || !afterReset(at, resetAt)) continue;
-    const normalizedText = sample.normalizedText || normalizeItemText(sample.text);
+    const normalizedText = normalizeItemText(sample.normalizedText || sample.text);
     if (!normalizedText) continue;
     events.push({
       at, text: sample.text, normalizedText, categoryId: sample.categoryId,
@@ -166,7 +166,7 @@ function placedBy(data: EvalExport, normalizedText: string, categoryId: string, 
     if (!PLACEMENT_SOURCES.has(sample.source) || sample.categoryId !== categoryId) return false;
     const placedAt = time(sample.createdAt);
     return placedAt > 0 && placedAt <= at && at - placedAt <= PLACEMENT_WINDOW_MS
-      && (sample.normalizedText || normalizeItemText(sample.text)) === normalizedText;
+      && (normalizeItemText(sample.normalizedText || sample.text)) === normalizedText;
   });
 }
 
@@ -354,7 +354,7 @@ export function trainingItems(context: EvalContext): TrainingItem[] {
     const at = time(sample.createdAt);
     if (!sample.categoryId || !categoryIds.has(sample.categoryId) || !afterReset(at, context.resetAt)) continue;
     if (sample.source === "negative" || sample.source === "auto") continue;
-    const normalizedText = sample.normalizedText || normalizeItemText(sample.text);
+    const normalizedText = normalizeItemText(sample.normalizedText || sample.text);
     if (!normalizedText) continue;
     keep(LABEL_SOURCES.has(sample.source) ? confirmed : fallback, { normalizedText, categoryId: sample.categoryId, at });
   }
@@ -595,7 +595,7 @@ function seenBefore(normalizedText: string, context: EvalContext): boolean {
   if (context.labels.some((label) => label.normalizedText === normalizedText)) return true;
   if (context.doneTodos.some((todo) => normalizeItemText(todo.text) === normalizedText)) return true;
   return context.samples.some((sample) => sample.source !== "negative" && sample.source !== "auto"
-    && (sample.normalizedText || normalizeItemText(sample.text)) === normalizedText);
+    && (normalizeItemText(sample.normalizedText || sample.text)) === normalizedText);
 }
 
 export async function replay(

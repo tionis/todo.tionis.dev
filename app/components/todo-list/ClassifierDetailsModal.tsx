@@ -47,7 +47,7 @@ export function ClassifierDetailsModal({
     const existingKeys = new Set(
       todoList.todoClassifications
         .filter((sample) => sample.sublist?.id)
-        .map((sample) => `${sample.normalizedText || normalizeItemText(sample.text)}:${sample.sublist!.id}:${sample.source}`)
+        .map((sample) => `${normalizeItemText(sample.normalizedText || sample.text)}:${sample.sublist!.id}:${sample.source}`)
     );
     const transactions = todoList.todos.flatMap((todo) => {
       if (!todo.done || !todo.sublist?.id) return [];
