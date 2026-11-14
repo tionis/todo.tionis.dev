@@ -219,6 +219,17 @@ Naive Bayes and Jev use thresholds fixed up front; the printed sweep shows other
 on the same predictions and, since it is tuned on the data being scored, is an upper bound.
 `--max-events N` replays only the last N events; `--json` prints the results as JSON.
 
+A list's history also holds wrong placements nobody corrected, so the labels are not ground
+truth. A label is *trusted* when a person chose that category: a manual move, or a check-off
+of an item they had added to or moved into that category in the 60 days before; otherwise it
+may be the classifier's own guess, which flatters `current`. `--trusted` scores only trusted
+labels, `--since YYYY-MM-DD` only events from that day on (the methods still learn from
+everything before each event). `--review sheet.csv` writes the events where a method
+disagrees with the label, or the label is untrusted; fill in its `verdict` column (empty:
+label stands, `ok`, a category name or unique prefix, `A | B` for either, `skip`) and score
+against it with `--verdicts sheet.csv` (`lib/classifier-eval-review.ts`). Name such sheets
+`smart-todos-review*.csv`; git ignores them, as they contain the list's items.
+
 `jev` calls TypeSafe's Jev decision model through AIMLAPI and therefore **sends item texts and
 category names to AIMLAPI/TypeSafe**. It needs `AIMLAPI_KEY`; `JEV_MODEL` (default
 `typesafe/jev-1.14`) and `JEV_BASE_URL` (e.g. a local Laya server's `/v1/systemone`) are
