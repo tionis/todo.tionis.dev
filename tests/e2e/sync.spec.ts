@@ -146,16 +146,24 @@ test('collapsing a category hides its items on this device only and survives a r
   await expect(alice.page.getByText('Sourdough', { exact: true })).toBeVisible();
 });
 
-test('categories can be grouped and restock items are flagged, shared and hidden on request', async ({ browser }) => {
+test('categories nest by path and restock items are flagged, shared and hidden on request', async ({ browser }) => {
   const alice = await openList(await browser.newContext(), 'alice-e2e-session');
   const bob = await openList(await browser.newContext(), 'bob-e2e-session');
 
+  // A path in the name nests the category; the parent "EDEKA" exists only as a header.
   await alice.page.getByRole('button', { name: '+ Add Category' }).click();
-  await alice.page.getByPlaceholder('Category name').fill('Drogerie');
-  await alice.page.getByPlaceholder('Group (optional)').fill('EDEKA');
+  await alice.page.getByPlaceholder('Category name').fill('EDEKA/Drogerie');
   await alice.page.getByPlaceholder('Category name').press('Enter');
-  await expect(alice.page.getByRole('button', { name: 'Collapse EDEKA' })).toBeVisible();
-  await expect(bob.page.getByRole('button', { name: 'Collapse EDEKA' })).toBeVisible();
+  await expect(alice.page.getByRole('button', { name: 'Collapse EDEKA', exact: true })).toBeVisible();
+  await expect(bob.page.getByRole('button', { name: 'Collapse EDEKA', exact: true })).toBeVisible();
+  await expect(alice.page.getByRole('button', { name: 'Collapse EDEKA / Drogerie' })).toBeVisible();
+
+  // The "Inside" field nests a level deeper.
+  await alice.page.getByRole('button', { name: '+ Add Category' }).click();
+  await alice.page.getByPlaceholder('Category name').fill('Bad');
+  await alice.page.getByPlaceholder(/^Inside/).fill('EDEKA / Drogerie');
+  await alice.page.getByPlaceholder('Category name').press('Enter');
+  await expect(bob.page.getByRole('button', { name: 'Collapse EDEKA / Drogerie / Bad' })).toBeVisible();
 
   const input = alice.page.getByPlaceholder('What needs to be done?');
   await input.fill('Spülmittel');
@@ -171,8 +179,8 @@ test('categories can be grouped and restock items are flagged, shared and hidden
   await alice.page.getByRole('button', { name: /^Show restock/ }).click();
   await expect(aliceItem).toBeVisible();
 
-  await alice.page.getByRole('button', { name: 'Collapse EDEKA' }).click();
-  await expect(alice.page.getByRole('button', { name: 'Collapse Drogerie' })).toBeHidden();
+  await alice.page.getByRole('button', { name: 'Collapse EDEKA', exact: true }).click();
+  await expect(alice.page.getByRole('button', { name: 'Collapse EDEKA / Drogerie' })).toBeHidden();
 });
 
 test('local adds survive saves and incoming changes overlapping them', async ({ browser }) => {

@@ -1,3 +1,5 @@
+import { categoryPath } from "./categoryTree";
+
 const EXPORT_FORMAT = "smart-todos-list";
 const EXPORT_VERSION = 1;
 
@@ -79,8 +81,8 @@ export function buildListExport(todoList: ExportableTodoList, exportedAt = new D
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       .map((sublist) => ({
         id: sublist.id,
-        name: sublist.name,
-        group: sublist.group || null,
+        name: categoryPath(sublist) || sublist.name,
+        group: null,
         order: sublist.order ?? null,
         classifierKeywords: sublist.classifierKeywords ?? null,
         createdAt: serializeDate(sublist.createdAt),

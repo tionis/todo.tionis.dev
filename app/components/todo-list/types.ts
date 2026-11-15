@@ -12,7 +12,7 @@ export interface Todo {
 export interface Sublist {
   id: string;
   name: string;
-  /** Categories with the same group are shown under one header, e.g. a second store. */
+  /** Legacy: lists from before category paths kept the parent here; see lib/categoryTree.ts. */
   group?: string | null;
   order: number;
   todos: Todo[];

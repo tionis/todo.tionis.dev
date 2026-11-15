@@ -5,7 +5,7 @@ import { id } from '../../../lib/id';
 import { useDroppable } from '@dnd-kit/core';
 import { db } from '../../../lib/db';
 import { createCategoryToRestockTransactions, createTodoTransactions } from '../../../lib/todoTransactions';
-import { groupNames, normalizeGroupName } from '../../../lib/categoryGroups';
+import { categoryDisplayPath, categoryLeafName, categoryParentPath, categoryPath, categoryPathKey, categoryPaths, joinCategoryPath, renameCategoryPath, splitCategoryPath } from '../../../lib/categoryTree';
 import { useToast } from '../Toast';
 import type { Todo, Sublist, TodoList } from './types';
 import { TodoListComponent } from './TodoItems';
@@ -19,7 +19,9 @@ export function SublistSection({
   deleteTodo,
   collapsed,
   onToggleCollapsed,
-  hideRestock
+  hideRestock,
+  descendantTodos = [],
+  children
 }: { 
   sublist: Sublist; 
   todoList: TodoList; 
@@ -30,13 +32,17 @@ export function SublistSection({
   collapsed: boolean;
   onToggleCollapsed: () => void;
   hideRestock: boolean;
+  /** Todos of the categories nested below this one, for the header count. */
+  descendantTodos?: Todo[];
+  /** Categories nested below this one, shown inside it. */
+  children?: React.ReactNode;
 }) {
   const [showCompletedInSublist, setShowCompletedInSublist] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
-  const [editName, setEditName] = useState(sublist.name);
-  const [editGroup, setEditGroup] = useState(sublist.group || "");
+  const [editName, setEditName] = useState(categoryLeafName(sublist));
+  const [editParent, setEditParent] = useState(categoryParentPath(sublist));
   const [showRestockConfirm, setShowRestockConfirm] = useState(false);
   const { addToast } = useToast();
   
@@ -51,8 +57,11 @@ export function SublistSection({
     : shownTodos;
   
   const completedTodos = shownTodos.filter(todo => todo.done);
-  const completedCount = sublist.todos.filter(todo => todo.done).length;
-  const totalCount = sublist.todos.length;
+  const countedTodos = [...sublist.todos, ...descendantTodos];
+  const completedCount = countedTodos.filter(todo => todo.done).length;
+  const totalCount = countedTodos.length;
+  const leafName = categoryLeafName(sublist);
+  const displayPath = categoryDisplayPath(sublist);
 
   const deleteSublist = () => {
     db.transact([
@@ -67,18 +76,24 @@ export function SublistSection({
   const startEditingName = () => {
     if (!isOwner) return;
     setEditingName(true);
-    setEditName(sublist.name);
-    setEditGroup(sublist.group || "");
+    setEditName(categoryLeafName(sublist));
+    setEditParent(categoryParentPath(sublist));
   };
 
   const saveNameEdit = async () => {
-    if (!editName.trim()) return;
-    
+    if (!splitCategoryPath(editName).length) return;
+    const fromPath = categoryPath(sublist);
+    const toPath = joinCategoryPath(editParent, editName);
+    // Renaming a category moves what is nested below it, like a folder. Another category
+    // with exactly the same path stays where it is.
+    const updates = renameCategoryPath(todoList.sublists, fromPath, toPath).filter((update) =>
+      update.id === sublist.id || categoryPathKey(categoryPath(todoList.sublists.find(s => s.id === update.id)!)) !== categoryPathKey(fromPath)
+    );
+
     try {
-      await db.transact(db.tx.sublists[sublist.id].update({
-        name: editName.trim(),
-        group: normalizeGroupName(editGroup)
-      }));
+      if (updates.length) {
+        await db.transact(updates.map((update) => db.tx.sublists[update.id].update({ name: update.name, group: null })));
+      }
       setEditingName(false);
     } catch (err) {
       console.error("Failed to update sublist name:", err);
@@ -88,15 +103,15 @@ export function SublistSection({
 
   const cancelNameEdit = () => {
     setEditingName(false);
-    setEditName(sublist.name);
-    setEditGroup(sublist.group || "");
+    setEditName(categoryLeafName(sublist));
+    setEditParent(categoryParentPath(sublist));
   };
 
   const convertToRestock = () => {
     const { transactions, sorted, unsorted } = createCategoryToRestockTransactions(todoList, sublist.id);
     db.transact(transactions).then(() => {
       addToast(
-        `${sublist.name} is now the restock flag: ${sorted} item${sorted === 1 ? '' : 's'} sorted${unsorted ? `, ${unsorted} left to sort by hand` : ''}`,
+        `${displayPath} is now the restock flag: ${sorted} item${sorted === 1 ? '' : 's'} sorted${unsorted ? `, ${unsorted} left to sort by hand` : ''}`,
         "success",
       );
     }).catch(err => {
@@ -131,7 +146,7 @@ export function SublistSection({
           <CollapseToggle
             collapsed={collapsed}
             onToggle={onToggleCollapsed}
-            label={sublist.name}
+            label={displayPath}
             controls={`sublist-content-${sublist.id}`}
           />
           {editingName ? (
@@ -151,15 +166,15 @@ export function SublistSection({
               />
               <input
                 type="text"
-                value={editGroup}
-                onChange={(e) => setEditGroup(e.target.value)}
+                value={editParent}
+                onChange={(e) => setEditParent(e.target.value)}
                 onKeyDown={handleNameKeyDown}
-                aria-label="Group"
-                placeholder="Group (optional)"
-                list={`category-groups-${todoList.id}`}
+                aria-label="Inside"
+                placeholder="Inside (optional, e.g. ALDI)"
+                list={`category-paths-${todoList.id}`}
                 className="text-sm bg-white dark:bg-gray-600 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 basis-28"
               />
-              <GroupSuggestions todoList={todoList} />
+              <PathSuggestions todoList={todoList} />
               <button type="submit" className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">Save</button>
               <button type="button" onClick={cancelNameEdit} className="px-2 py-1 text-xs rounded bg-gray-300 text-gray-700 dark:bg-gray-600 dark:text-gray-200">Cancel</button>
               <button
@@ -184,7 +199,7 @@ export function SublistSection({
               title={isOwner ? "Click to edit category name (desktop) or use edit button" : undefined}
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              {sublist.name} ({totalCount - completedCount}/{totalCount})
+              {leafName} ({totalCount - completedCount}/{totalCount})
               {canWrite && isOver && <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">(Drop here)</span>}
             </span>
           )}
@@ -240,6 +255,11 @@ export function SublistSection({
           </div>
         )}
         {canWrite && <QuickAddTodo todoList={todoList} sublist={sublist} />}
+        {children && (
+          <div className="pl-3 border-t border-gray-300 dark:border-gray-600 [&>*:last-child]:border-b-0">
+            {children}
+          </div>
+        )}
         </div>
       )}
       
@@ -248,7 +268,7 @@ export function SublistSection({
           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full relative shadow-xl">
             <h4 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Convert to restock</h4>
             <p className="text-gray-600 dark:text-gray-300 mb-3">
-              Use this when &quot;<strong>{sublist.name}</strong>&quot; means &quot;not urgent&quot; rather than a place in the store.
+              Use this when &quot;<strong>{displayPath}</strong>&quot; means &quot;not urgent&quot; rather than a place in the store.
             </p>
             <p className="text-gray-600 dark:text-gray-300 mb-6 text-sm">
               Its {sublist.todos.length} item{sublist.todos.length === 1 ? '' : 's'} get the restock flag and are sorted into the other categories where the classifier is sure; the rest stay uncategorized for you to sort. The category itself is removed.
@@ -281,7 +301,7 @@ export function SublistSection({
           <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full relative shadow-xl">
             <h4 className="text-lg font-bold mb-4 text-red-600 dark:text-red-400">Delete Category</h4>
             <p className="text-gray-600 dark:text-gray-300 mb-6">
-              Delete category "<strong>{sublist.name}</strong>" and all its todos?
+              Delete category "<strong>{displayPath}</strong>" and all its todos?{children ? ' The categories inside it stay.' : ''}
             </p>
             <div className="flex space-x-3">
               <button
@@ -307,11 +327,11 @@ export function SublistSection({
   );
 }
 
-/** Existing group names as suggestions for a group field (`list="category-groups-<list>"`). */
-export function GroupSuggestions({ todoList }: { todoList: TodoList }) {
+/** Existing category paths as suggestions for an "Inside" field (`list="category-paths-<list>"`). */
+export function PathSuggestions({ todoList }: { todoList: TodoList }) {
   return (
-    <datalist id={`category-groups-${todoList.id}`}>
-      {groupNames(todoList.sublists).map((name) => <option key={name} value={name} />)}
+    <datalist id={`category-paths-${todoList.id}`}>
+      {categoryPaths(todoList.sublists).map((path) => <option key={path} value={path} />)}
     </datalist>
   );
 }
@@ -355,26 +375,26 @@ export function CollapseToggle({
 export function AddSublistForm({ todoList }: { todoList: TodoList }) {
   const [isAdding, setIsAdding] = useState(false);
   const [name, setName] = useState("");
-  const [group, setGroup] = useState("");
+  const [parent, setParent] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    const path = joinCategoryPath(parent, name);
+    if (!splitCategoryPath(name).length) return;
 
     const maxOrder = Math.max(0, ...todoList.sublists.map(s => s.order));
     db.transact(
       db.tx.sublists[id()]
         .update({
-          name: name.trim(),
-          ...(normalizeGroupName(group) ? { group: normalizeGroupName(group) } : {}),
+          name: path,
           order: maxOrder + 1,
           createdAt: new Date().toISOString()
         })
         .link({ list: todoList.id })
     ).then(() => {
       setName("");
-      setGroup("");
+      setParent("");
       setIsAdding(false);
       setError(null);
     }).catch(err => {
@@ -414,14 +434,14 @@ export function AddSublistForm({ todoList }: { todoList: TodoList }) {
         />
         <input
           type="text"
-          value={group}
-          onChange={(e) => setGroup(e.target.value)}
-          placeholder="Group (optional)"
-          aria-label="Group"
-          list={`category-groups-${todoList.id}`}
+          value={parent}
+          onChange={(e) => setParent(e.target.value)}
+          placeholder="Inside (optional, e.g. ALDI)"
+          aria-label="Inside"
+          list={`category-paths-${todoList.id}`}
           className="flex-1 basis-28 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
         />
-        <GroupSuggestions todoList={todoList} />
+        <PathSuggestions todoList={todoList} />
         <button
           type="submit"
           className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700"

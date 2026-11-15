@@ -2,6 +2,7 @@ import { id } from "./id";
 import { db } from "./db";
 import { normalizeItemText } from "./classification";
 import { formatListTags } from "./tags";
+import { categoryPath } from "./categoryTree";
 
 export interface TemplateCopyOptions {
   categories: boolean;
@@ -96,12 +97,12 @@ function createTemplateContentTransactions({
   const transactions: any[] = [];
   const sublistIdMap = new Map<string, string>();
   const targetSublistByName = new Map(
-    targetSublists.map((sublist) => [getSublistKey(sublist.name), sublist.id])
+    targetSublists.map((sublist) => [getSublistKey(categoryPath(sublist)), sublist.id])
   );
   const sourceSublists = sortSublists(sourceList.sublists || []);
 
   sourceSublists.forEach((sublist, index) => {
-    const existingTargetId = targetSublistByName.get(getSublistKey(sublist.name));
+    const existingTargetId = targetSublistByName.get(getSublistKey(categoryPath(sublist)));
 
     if (existingTargetId) {
       sublistIdMap.set(sublist.id, existingTargetId);
@@ -112,12 +113,11 @@ function createTemplateContentTransactions({
 
     const newSublistId = id();
     sublistIdMap.set(sublist.id, newSublistId);
-    targetSublistByName.set(getSublistKey(sublist.name), newSublistId);
+    targetSublistByName.set(getSublistKey(categoryPath(sublist)), newSublistId);
     transactions.push(
       db.tx.sublists[newSublistId]
         .update({
-          name: sublist.name,
-          ...(sublist.group ? { group: sublist.group } : {}),
+          name: categoryPath(sublist) || sublist.name,
           order: targetSublists.length + index + 1,
           classifierKeywords: sublist.classifierKeywords || "",
           createdAt: new Date().toISOString(),

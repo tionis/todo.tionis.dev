@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { id } from "./id";
 import { normalizeItemText } from "./classification";
+import { categoryPath } from "./categoryTree";
 
 interface ListExportV1 {
   format: "smart-todos-list";
@@ -75,8 +76,8 @@ export function buildListImportTransactions(value: unknown, ownerId: string, slu
 
   for (const category of value.categories) {
     transactions.push(db.tx.sublists[categoryIds.get(category.id)!].update({
-      name: category.name,
-      ...(category.group ? { group: category.group } : {}),
+      // A version 1 export may carry a separate group; it becomes the first path segment.
+      name: categoryPath(category) || category.name,
       order: category.order ?? 0,
       classifierKeywords: category.classifierKeywords ?? "",
       createdAt: category.createdAt || new Date().toISOString(),

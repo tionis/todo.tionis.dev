@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeItemText } from "./classification";
+import { categoryLeafName } from "./categoryTree";
 import {
   JEV_INSTRUCTIONS,
   buildJevRequest,
@@ -287,7 +288,7 @@ export function embeddingMethod(options: ApiOptions, name = "embed"): EvalMethod
       // Earlier placements plus each category's own name, so a category without examples
       // still attracts what its name describes ("Getränke" → "Mineralwasser").
       const items = trainingItems(context).map((item) => ({ text: item.normalizedText, categoryId: item.categoryId }));
-      for (const category of context.categories) items.push({ text: normalizeItemText(category.name), categoryId: category.id });
+      for (const category of context.categories) items.push({ text: normalizeItemText(categoryLeafName(category)), categoryId: category.id });
       await ensure([query, ...items.map((item) => item.text)]);
       const queryVector = vectors.get(query);
       if (!queryVector) return null;

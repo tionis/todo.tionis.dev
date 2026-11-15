@@ -16,6 +16,7 @@ import {
   type ClassificationSublist,
   type ClassificationTodo,
 } from "./classification";
+import { categoryDisplayPath, categoryLeafName, categoryParentPath } from "./categoryTree";
 
 // ---------------------------------------------------------------------------------------------
 // Input
@@ -443,7 +444,7 @@ export function jevOptionKeys(categories: EvalCategory[]): Map<string, string> {
   const keys = new Map<string, string>();
   const used = new Set<string>();
   for (const category of categories) {
-    const base = (category.group ? `${category.group} / ${category.name}` : category.name).trim() || category.id;
+    const base = categoryDisplayPath(category).trim() || category.id;
     let key = base;
     for (let index = 2; used.has(key); index += 1) key = `${base} (${index})`;
     used.add(key);
@@ -463,8 +464,9 @@ export function buildJevRequest(text: string, context: EvalContext, model: strin
   const criteria: Record<string, string> = {};
   for (const [key, categoryId] of keys) {
     const category = context.categories.find((entry) => entry.id === categoryId)!;
-    const parts = [`Section "${category.name}"`];
-    if (category.group) parts.push(`in "${category.group}"`);
+    const parts = [`Section "${categoryLeafName(category)}"`];
+    const parent = categoryParentPath(category);
+    if (parent) parts.push(`in "${parent.split("/").join(" / ")}"`);
     const keywords = parseClassifierKeywords(category.classifierKeywords);
     if (keywords.length) parts.push(`typical items: ${keywords.join(", ")}`);
     const seen = examples.get(categoryId) ?? [];

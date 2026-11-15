@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { db } from '../../../lib/db';
 import { classifyTodoText, getClassificationCandidates, getClassifierStatus, normalizeItemText, parseClassifierKeywords, type ClassifierAggressiveness } from '../../../lib/classification';
 import { createClassificationTransaction } from '../../../lib/todoTransactions';
+import { buildCategoryTree, categoryDisplayPath, flattenCategoryTree } from '../../../lib/categoryTree';
 import Modal from '../Modal';
 import type { TodoList } from './types';
 import { ResetClassifierDatasetModal } from './ResetClassifierDatasetModal';
@@ -175,11 +176,11 @@ export function ClassifierDetailsModal({
         <div>
           <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Category keywords</div>
           <div className="space-y-2">
-            {[...todoList.sublists]
-              .sort((a, b) => a.order - b.order)
+            {flattenCategoryTree(buildCategoryTree(todoList.sublists))
+              .flatMap(({ node }) => node.category ? [node.category] : [])
               .map((sublist) => (
                 <label key={sublist.id} className="block">
-                  <span className="block text-xs text-gray-600 dark:text-gray-400 mb-1">{sublist.name}</span>
+                  <span className="block text-xs text-gray-600 dark:text-gray-400 mb-1">{categoryDisplayPath(sublist)}</span>
                   <input
                     type="text"
                     value={keywordDrafts[sublist.id] || ""}

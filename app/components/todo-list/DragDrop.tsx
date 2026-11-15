@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay, DragStartEvent, DragEndEvent, DragOverEvent, useDroppable } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { db } from '../../../lib/db';
 import { createClassificationTransaction } from '../../../lib/todoTransactions';
 import { useToast } from '../Toast';
 import type { Todo, Sublist, TodoList } from './types';
-import { ActionBar, AddSublistForm, CollapseToggle, SublistSection } from './SublistSection';
+import { ActionBar, AddSublistForm, CollapseToggle, PathSuggestions, SublistSection } from './SublistSection';
 import { UNCATEGORIZED_SECTION_ID, useCollapsedCategories } from '../../../lib/collapsedCategories';
-import { groupSectionId, layoutCategorySections } from '../../../lib/categoryGroups';
+import { buildCategoryTree, joinCategoryPath, pathSectionId, renameCategoryPath, splitCategoryPath, subtreeCategories, type CategoryNode } from '../../../lib/categoryTree';
 import { useListViewPreference } from '../../../lib/viewPreferences';
 import { TodoForm, TodoListComponent } from './TodoItems';
 
@@ -289,46 +289,46 @@ export function GlobalDragWrapper({
       <div className="border border-gray-300 dark:border-gray-600 max-w-2xl w-full mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-sm">
         {canWrite && <TodoForm todoList={todoList} addToast={addToast} />}
         
-        {/* Categories, grouped where they name a group */}
-        {layoutCategorySections(sublists).map(section => {
-          const renderCategory = (sublist: Sublist) => (
-            <SublistSection 
-              key={sublist.id} 
-              sublist={sublist} 
-              todoList={todoList}
-              canWrite={canWrite}
-              isOwner={isOwner}
-              toggleTodo={toggleTodo}
-              deleteTodo={deleteTodo}
-              collapsed={collapsed.has(sublist.id)}
-              onToggleCollapsed={() => toggleCollapsed(sublist.id)}
-              hideRestock={hideRestock}
-            />
-          );
-          if (section.kind === 'category') return renderCategory(section.category);
-          const sectionId = groupSectionId(section.name);
-          const isCollapsed = collapsed.has(sectionId);
-          const todos = section.categories.flatMap(category => category.todos);
-          return (
-            <div key={sectionId} className="border-b border-gray-300 dark:border-gray-600">
-              <div className="bg-gray-100 dark:bg-gray-900/60 px-3 py-2 flex items-center space-x-2 text-sm font-semibold text-gray-900 dark:text-white">
-                <CollapseToggle
-                  collapsed={isCollapsed}
-                  onToggle={() => toggleCollapsed(sectionId)}
-                  label={section.name}
-                  controls={`group-content-${sectionId}`}
-                  kind="group"
-                />
-                <span>{section.name} ({todos.filter(todo => !todo.done).length}/{todos.length})</span>
-              </div>
-              {!isCollapsed && (
-                <div id={`group-content-${sectionId}`} className="pl-3 [&>*:last-child]:border-b-0">
-                  {section.categories.map(renderCategory)}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {/* Categories as a tree of their paths ("ALDI/Kühlregal") */}
+        {(() => {
+          const renderNode = (node: CategoryNode<Sublist>): ReactNode => {
+            const children = node.children.length ? node.children.map(renderNode) : undefined;
+            if (node.category) {
+              const sublist = node.category;
+              return (
+                <SublistSection
+                  key={node.key}
+                  sublist={sublist}
+                  todoList={todoList}
+                  canWrite={canWrite}
+                  isOwner={isOwner}
+                  toggleTodo={toggleTodo}
+                  deleteTodo={deleteTodo}
+                  collapsed={collapsed.has(sublist.id)}
+                  onToggleCollapsed={() => toggleCollapsed(sublist.id)}
+                  hideRestock={hideRestock}
+                  descendantTodos={node.children.flatMap(subtreeCategories).flatMap(category => category.todos)}
+                >
+                  {children}
+                </SublistSection>
+              );
+            }
+            const sectionId = pathSectionId(node.path);
+            return (
+              <CategoryFolderSection
+                key={node.key}
+                node={node}
+                todoList={todoList}
+                isOwner={isOwner}
+                collapsed={collapsed.has(sectionId)}
+                onToggleCollapsed={() => toggleCollapsed(sectionId)}
+              >
+                {children}
+              </CategoryFolderSection>
+            );
+          };
+          return buildCategoryTree(sublists).map(renderNode);
+        })()}
 
         {/* Add new sublist button */}
         {canWrite && <AddSublistForm todoList={todoList} />}
@@ -368,3 +368,121 @@ export function GlobalDragWrapper({
 }
 
 // Helper Components
+
+/**
+ * A parent in the category tree that has no category of its own ("ALDI" when only
+ * "ALDI/Kühlregal" exists). Renaming it renames every category below it.
+ */
+function CategoryFolderSection({
+  node,
+  todoList,
+  isOwner,
+  collapsed,
+  onToggleCollapsed,
+  children
+}: {
+  node: CategoryNode<Sublist>;
+  todoList: TodoList;
+  isOwner: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  children?: ReactNode;
+}) {
+  const { addToast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(node.name);
+  const [editParent, setEditParent] = useState(node.path.slice(0, -1).join('/'));
+  const sectionId = pathSectionId(node.path);
+  const todos = subtreeCategories(node).flatMap(category => category.todos);
+  const fromPath = node.path.join('/');
+
+  const startEditing = () => {
+    setEditName(node.name);
+    setEditParent(node.path.slice(0, -1).join('/'));
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!splitCategoryPath(editName).length) return;
+    const updates = renameCategoryPath(todoList.sublists, fromPath, joinCategoryPath(editParent, editName));
+    try {
+      if (updates.length) {
+        await db.transact(updates.map(update => db.tx.sublists[update.id].update({ name: update.name, group: null })));
+      }
+      setEditing(false);
+    } catch (err) {
+      console.error("Failed to rename category group:", err);
+      addToast("Failed to rename. Please try again.", "error");
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditing(false);
+    }
+  };
+
+  return (
+    <div className="border-b border-gray-300 dark:border-gray-600">
+      <div className="bg-gray-100 dark:bg-gray-900/60 px-3 py-2 flex items-center space-x-2 text-sm font-semibold text-gray-900 dark:text-white group">
+        <CollapseToggle
+          collapsed={collapsed}
+          onToggle={onToggleCollapsed}
+          label={node.path.join(' / ')}
+          controls={`group-content-${sectionId}`}
+          kind="group"
+        />
+        {editing ? (
+          <form
+            className="flex flex-wrap items-center gap-2 flex-1 min-w-0 font-normal"
+            onSubmit={(e) => { e.preventDefault(); save(); }}
+          >
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={onKeyDown}
+              aria-label="Name"
+              autoFocus
+              className="text-sm font-medium bg-white dark:bg-gray-600 text-gray-900 dark:text-white border border-blue-300 dark:border-blue-600 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 basis-32"
+            />
+            <input
+              type="text"
+              value={editParent}
+              onChange={(e) => setEditParent(e.target.value)}
+              onKeyDown={onKeyDown}
+              aria-label="Inside"
+              placeholder="Inside (optional)"
+              list={`category-paths-${todoList.id}`}
+              className="text-sm bg-white dark:bg-gray-600 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-500 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-0 flex-1 basis-28"
+            />
+            <PathSuggestions todoList={todoList} />
+            <button type="submit" className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">Save</button>
+            <button type="button" onClick={() => setEditing(false)} className="px-2 py-1 text-xs rounded bg-gray-300 text-gray-700 dark:bg-gray-600 dark:text-gray-200">Cancel</button>
+          </form>
+        ) : (
+          <>
+            <span>{node.name} ({todos.filter(todo => !todo.done).length}/{todos.length})</span>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={startEditing}
+                className="text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 touch-manipulation text-xs font-normal"
+                title="Rename or move this group and everything in it"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                edit
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {!collapsed && (
+        <div id={`group-content-${sectionId}`} className="pl-3 [&>*:last-child]:border-b-0">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
