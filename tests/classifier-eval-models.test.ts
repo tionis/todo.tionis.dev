@@ -41,11 +41,18 @@ test("the choice request letters each category with its description and examples
   const { letters, body } = buildChoiceRequest("Gouda", context, "some/model");
   assert.deepEqual([...letters.values()], ["kuehl", "getraenke", "drogerie"]);
   const prompt = body.messages[1].content;
-  assert.match(prompt, /^Item: Gouda/);
+  assert.match(prompt, /^Options:\n/);
+  assert.match(prompt, /\n\nItem: Gouda$/);
   assert.match(prompt, /A\) Section "Kühlwaren"; sorted here before: kase/);
   assert.match(prompt, /C\) Section "Drogerie"; in "EDEKA"/);
   assert.equal(body.logprobs, true);
   assert.equal(body.max_tokens, 1);
+  assert.doesNotMatch(body.messages[0].content, /How this household sorts/);
+});
+
+test("a list's steering instructions go into the system prompt", () => {
+  const { body } = buildChoiceRequest("Gouda", context, "some/model", "  Cheese goes to EDEKA.\n");
+  assert.match(body.messages[0].content, /How this household sorts:\nCheese goes to EDEKA\.\n\nAnswer with the letter/);
 });
 
 test("letter probabilities come from the first token's alternatives, renormalised over the options", () => {

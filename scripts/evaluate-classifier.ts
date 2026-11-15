@@ -4,6 +4,7 @@
 //   npm run eval:classifier -- <export.json> [--methods current,lookup-first,naive-bayes,jev,jev-fallback]
 //                              [--max-requests 300] [--max-events N] [--json]
 //                              [--trusted] [--since YYYY-MM-DD] [--review sheet.csv] [--verdicts sheet.csv]
+//                              [--instructions steering.txt]
 //
 // --trusted scores only labels a person chose (manual moves, check-offs of items they placed);
 // --since scores only events from that day on. --review writes the events where a method
@@ -56,7 +57,7 @@ const OPENROUTER = "https://openrouter.ai/api/v1";
 function parseArgs(argv: string[]) {
   const args = {
     file: "", methods: ["current", "lookup-first", "naive-bayes"], maxRequests: 300, maxEvents: 0, json: false,
-    trusted: false, since: "", review: "", verdicts: "",
+    trusted: false, since: "", review: "", verdicts: "", instructions: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -69,6 +70,7 @@ function parseArgs(argv: string[]) {
     else if (arg === "--since") args.since = value();
     else if (arg === "--review") args.review = value();
     else if (arg === "--verdicts") args.verdicts = value();
+    else if (arg === "--instructions") args.instructions = value();
     else if (arg.startsWith("--")) throw new Error(`Unknown option ${arg}`);
     else args.file = arg;
   }
@@ -117,6 +119,8 @@ async function main() {
     })
     : undefined;
   const env = process.env;
+  // Steering text for the chat model, like a list owner's notes on how the household sorts.
+  const instructions = args.instructions ? await readFile(args.instructions, "utf8") : undefined;
   const modelOptions = (kind: "llm" | "embed") => {
     const baseUrl = (kind === "llm" ? env.LLM_BASE_URL : env.EMBED_BASE_URL) || OPENROUTER;
     const apiKey = (kind === "llm" ? env.LLM_API_KEY : env.EMBED_API_KEY) || (baseUrl === OPENROUTER ? env.OPENROUTER_API_KEY : undefined);
@@ -132,7 +136,7 @@ async function main() {
     }
   }
   const models: Record<string, (EvalMethod & { stats: ModelStats }) | undefined> = {
-    llm: args.methods.some((name) => name.startsWith("llm")) ? llmChoiceMethod(modelOptions("llm")) : undefined,
+    llm: args.methods.some((name) => name.startsWith("llm")) ? llmChoiceMethod({ ...modelOptions("llm"), instructions }) : undefined,
     embed: args.methods.some((name) => name.startsWith("embed")) ? embeddingMethod(modelOptions("embed")) : undefined,
   };
   const available: Record<string, () => EvalMethod> = {

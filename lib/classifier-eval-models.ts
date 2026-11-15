@@ -65,6 +65,8 @@ interface ApiOptions {
   cache?: JsonCache;
   maxRequests?: number;
   thresholds?: Thresholds;
+  /** Steering text from the list's owner, e.g. the household's conventions (chat models only). */
+  instructions?: string;
 }
 
 const MAX_FAILURES_IN_A_ROW = 5;
@@ -134,7 +136,7 @@ export const DEFAULT_LLM_MODEL = "openai/gpt-4o-mini";
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /** The chat request: the same option descriptions as the Jev request, lettered. */
-export function buildChoiceRequest(text: string, context: EvalContext, model: string) {
+export function buildChoiceRequest(text: string, context: EvalContext, model: string, instructions?: string) {
   const { request, keys } = buildJevRequest(text, context, model);
   const criteria = Object.entries(request.questions.category.criteria).slice(0, LETTERS.length);
   const letters = new Map<string, string>();
@@ -154,8 +156,17 @@ export function buildChoiceRequest(text: string, context: EvalContext, model: st
       provider: { require_parameters: true },
       usage: { include: true },
       messages: [
-        { role: "system", content: `${JEV_INSTRUCTIONS} Answer with the letter of one option and nothing else.` },
-        { role: "user", content: `Item: ${text}\n\nOptions:\n${lines.join("\n")}` },
+        {
+          role: "system",
+          content: [
+            JEV_INSTRUCTIONS,
+            instructions?.trim() ? `How this household sorts:\n${instructions.trim()}` : "",
+            "Answer with the letter of one option and nothing else.",
+          ].filter(Boolean).join("\n\n"),
+        },
+        // The options first and the item last: requests for one list then share their whole
+        // prefix, which local servers (llama.cpp) and hosted prompt caches can reuse.
+        { role: "user", content: `Options:\n${lines.join("\n")}\n\nItem: ${text}` },
       ],
     },
   };
@@ -195,7 +206,7 @@ export function llmChoiceMethod(options: ApiOptions, name = "llm"): EvalMethod &
     stats,
     async predict(text, context) {
       if (context.categories.length < 2) return null;
-      const { letters, body } = buildChoiceRequest(text, context, options.model);
+      const { letters, body } = buildChoiceRequest(text, context, options.model, options.instructions);
       const response = await post<ChatResponse>("chat/completions", body);
       if (!response) return null;
       const probabilities = letterProbabilities(response, letters);
