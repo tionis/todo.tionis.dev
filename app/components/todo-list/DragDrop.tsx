@@ -61,7 +61,7 @@ export function DroppableUncategorizedSection({
           controls="sublist-content-uncategorized"
         />
         <span>
-        Uncategorized ({todosWithoutSublist.filter(t => !t.done).length}/{todosWithoutSublist.length})
+        Uncategorized ({todosWithoutSublist.filter(t => t.done).length}/{todosWithoutSublist.length})
         {canWrite && isOver && <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">(Drop here)</span>}
         {canWrite && !isOver && <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">(Drop todos here)</span>}
         </span>
@@ -463,7 +463,7 @@ function CategoryFolderSection({
           </form>
         ) : (
           <>
-            <span>{node.name} ({todos.filter(todo => !todo.done).length}/{todos.length})</span>
+            <span>{node.name} ({todos.filter(todo => todo.done).length}/{todos.length})</span>
             {isOwner && (
               <button
                 type="button"

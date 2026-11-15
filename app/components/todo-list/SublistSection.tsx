@@ -199,7 +199,7 @@ export function SublistSection({
               title={isOwner ? "Click to edit category name (desktop) or use edit button" : undefined}
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              {leafName} ({totalCount - completedCount}/{totalCount})
+              {leafName} ({completedCount}/{totalCount})
               {canWrite && isOver && <span className="text-xs text-blue-600 dark:text-blue-400 ml-2">(Drop here)</span>}
             </span>
           )}
