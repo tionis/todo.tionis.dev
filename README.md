@@ -170,6 +170,36 @@ Required backend configuration:
 
 See [backend/.env.example](backend/.env.example) for optional settings.
 
+## Sorting with a language model
+
+Optionally, new items can be sorted by a chat model instead of the local classifier. It is
+off unless the server has `CLASSIFIER_MODEL_API_KEY` (or `OPENROUTER_API_KEY`) or a
+`CLASSIFIER_MODEL_BASE_URL`, **and** the list owner turns on **List Settings → Classifier →
+Sort with a language model**. The owner can add a few lines on how the list is sorted
+("EDEKA is for organic produce; ham goes to Kühlwaren"), which go into the model's
+instructions.
+
+The browser describes the categories (name, parent path, keyword hints, recently sorted items)
+and sends them with the new item to `POST /api/lists/:id/classify`; the server adds the steering
+text, asks the model for one letter with log probabilities (`shared/model-classifier.mjs`, the
+same request the evaluation scores) and answers with a probability per category: 80 % or more
+sorts, 50 % or more is a suggestion. **Item texts, category names and recent items are sent to
+the configured model provider.** Answers are cached in SQLite for 30 days by request, requests
+that reach the model are limited to 60 per person per minute, and offline, after an error or
+after five seconds the local classifier sorts as before.
+
+| Variable | Purpose |
+| --- | --- |
+| `CLASSIFIER_MODEL_API_KEY` | API key for the model server; falls back to `OPENROUTER_API_KEY` |
+| `CLASSIFIER_MODEL_BASE_URL` | OpenAI-compatible API base; defaults to `https://openrouter.ai/api/v1` (e.g. `http://localhost:8080/v1` for llama.cpp) |
+| `CLASSIFIER_MODEL` | Model name; defaults to `openai/gpt-4o-mini`, whose OpenRouter provider returns log probabilities |
+| `CLASSIFIER_MODEL_TIMEOUT_MS` | How long the server waits for the model; defaults to `8000` |
+
+On the household's list (November 2026) the steered `gpt-4o-mini` was right 93.6 % of the time
+against 89.0 % for the local classifier, and on items never seen before 15 of 16 against 7;
+small local models were much worse (see "Classifier evaluation"). A model without log
+probabilities only ever suggests.
+
 ## Moving from the previous service
 
 Before the old service is retired, list owners can open **List Settings → Download Export**. In the Automerge version, use **Import Export** on the dashboard. Version 1 exports restore list settings, categories with groups and keyword hints, todos with completion, restock flag, order and timestamps, and the complete classifier history. Imports are private to the importing user by default; sharing must be configured again.
@@ -217,7 +247,8 @@ Methods (`--methods`, comma-separated): `current` (the app's classifier), `looku
 trigrams), `jev` and `jev-fallback` (lookup, then `current` if it would auto-sort, else Jev).
 Naive Bayes and Jev use thresholds fixed up front; the printed sweep shows other thresholds
 on the same predictions and, since it is tuned on the data being scored, is an upper bound.
-`--max-events N` replays only the last N events; `--json` prints the results as JSON.
+`--max-events N` replays only the last N events; `--json` prints the results as JSON;
+`--instructions file` gives the `llm` method a list's steering text.
 
 A list's history also holds wrong placements nobody corrected, so the labels are not ground
 truth. A label is *trusted* when a person chose that category: a manual move, or a check-off
@@ -234,7 +265,8 @@ against it with `--verdicts sheet.csv` (`lib/classifier-eval-review.ts`). Name s
 category names to AIMLAPI/TypeSafe**. It needs `AIMLAPI_KEY`; `JEV_MODEL` (default
 `typesafe/jev-1.14`) and `JEV_BASE_URL` (e.g. a local Laya server's `/v1/systemone`) are
 optional. Requests run one at a time, are capped by `--max-requests` (default 300) and cached
-in `.cache/jev/`. This is evaluation only: the app's classifier never calls a remote model.
+in `.cache/jev/`. This is evaluation only; the app itself only calls a model as described in
+"Sorting with a language model".
 
 `llm` and `embed` (plus `llm-fallback` and `embed-fallback`) use OpenAI-compatible APIs
 (`lib/classifier-eval-models.ts`), so they **send item texts and category names to that

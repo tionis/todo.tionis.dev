@@ -26,6 +26,19 @@ export function loadConfig() {
     throw new Error("SCIM_TOKEN must be at least 32 bytes");
   }
 
+  // Sorting new items with a chat model (OpenAI-compatible, OpenRouter by default). Off unless
+  // an API key or a base URL (e.g. a local llama.cpp server) is configured; lists opt in too.
+  const modelBaseUrl = process.env.CLASSIFIER_MODEL_BASE_URL || "";
+  const modelApiKey = process.env.CLASSIFIER_MODEL_API_KEY || process.env.OPENROUTER_API_KEY || "";
+  const modelClassifier = modelBaseUrl || modelApiKey
+    ? {
+      baseUrl: url(modelBaseUrl || "https://openrouter.ai/api/v1", "CLASSIFIER_MODEL_BASE_URL").href.replace(/\/$/, ""),
+      apiKey: modelApiKey || null,
+      model: process.env.CLASSIFIER_MODEL || "openai/gpt-4o-mini",
+      timeoutMs: Number(process.env.CLASSIFIER_MODEL_TIMEOUT_MS || 8000),
+    }
+    : null;
+
   return {
     host: process.env.HOST || "127.0.0.1",
     port: Number(process.env.PORT || 3030),
@@ -43,6 +56,7 @@ export function loadConfig() {
     trustProxy: process.env.TRUST_PROXY === "true",
     authLoginLimit,
     scimToken,
+    modelClassifier,
     secureCookies: process.env.SECURE_COOKIES
       ? process.env.SECURE_COOKIES === "true"
       : publicUrl.protocol === "https:",

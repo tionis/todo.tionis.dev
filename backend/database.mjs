@@ -130,6 +130,13 @@ export function openDatabase(dataDir) {
       PRIMARY KEY (scope, key)
     );
     CREATE INDEX IF NOT EXISTS idempotency_records_created_at ON idempotency_records(created_at);
+    -- Chat model answers for sorting new items, by request hash (backend/routes-classifier.mjs).
+    CREATE TABLE IF NOT EXISTS model_classifier_cache (
+      key TEXT PRIMARY KEY,
+      probabilities TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS model_classifier_cache_created_at ON model_classifier_cache(created_at);
     CREATE TABLE IF NOT EXISTS rate_limits (
       key TEXT PRIMARY KEY,
       count INTEGER NOT NULL,
@@ -138,6 +145,8 @@ export function openDatabase(dataDir) {
   `);
 
   ensureColumn(database, "users", "username TEXT");
+  ensureColumn(database, "lists", "classifier_model INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "lists", "classifier_instructions TEXT");
   ensureColumn(database, "users", "scim_external_id TEXT");
   ensureColumn(database, "users", "active INTEGER NOT NULL DEFAULT 1");
   ensureColumn(database, "users", "email_verified INTEGER NOT NULL DEFAULT 0");

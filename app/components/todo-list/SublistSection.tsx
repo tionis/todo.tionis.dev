@@ -5,6 +5,7 @@ import { id } from '../../../lib/id';
 import { useDroppable } from '@dnd-kit/core';
 import { db } from '../../../lib/db';
 import { createCategoryToRestockTransactions, createTodoTransactions } from '../../../lib/todoTransactions';
+import { classifyWithModel } from '../../../lib/modelClassifier';
 import { categoryDisplayPath, categoryLeafName, categoryParentPath, categoryPath, categoryPathKey, categoryPaths, joinCategoryPath, renameCategoryPath, splitCategoryPath } from '../../../lib/categoryTree';
 import { useToast } from '../Toast';
 import type { Todo, Sublist, TodoList } from './types';
@@ -464,20 +465,23 @@ export function QuickAddTodo({ todoList, sublist }: { todoList: TodoList; sublis
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedText = text.trim();
     if (!trimmedText) return;
+    // Cleared at once, not on success: see TodoForm.
+    setText("");
+    setError(null);
 
+    const decision = sublist ? null : await classifyWithModel(todoList, trimmedText);
     const { transactions } = createTodoTransactions(
       todoList,
       trimmedText,
       sublist?.id,
       "quick-add",
+      undefined,
+      { decision },
     );
-    // Cleared at once, not on success: see TodoForm.
-    setText("");
-    setError(null);
 
     db.transact(transactions).catch(err => {
       console.error("Failed to create todo:", err);

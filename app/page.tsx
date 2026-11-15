@@ -11,6 +11,7 @@ import { buildListImportTransactions, MAX_IMPORT_FILE_BYTES } from "../lib/listI
 import { userDisplayName } from "../shared/identity.mjs";
 import { consumeLaunchAction, consumeStoredShare, looksLikeItemList, splitSharedItems } from "../lib/pwa";
 import { createTodoTransactions } from "../lib/todoTransactions";
+import { classifyWithModel } from "../lib/modelClassifier";
 import LoadingSpinner from "./components/LoadingSpinner";
 import ErrorDisplay from "./components/ErrorDisplay";
 import Modal from "./components/Modal";
@@ -197,9 +198,10 @@ function AuthenticatedApp({ user }: { user: User }) {
     const list = writableLists.find((candidate) => candidate.id === listId);
     if (!list || items.length === 0) return false;
     const maxOrder = Math.max(0, ...list.todos.map((todo: any) => todo.order || 0));
-    // Each item goes through the list's classifier, like todos added in the list itself.
+    // Each item goes through the list's classifier (or its model), like todos added in the list itself.
+    const decisions = await Promise.all(items.map((item) => classifyWithModel(list, item)));
     const transactions = items.flatMap((item, index) =>
-      createTodoTransactions(list, item, undefined, "explicit", maxOrder + 1 + index).transactions,
+      createTodoTransactions(list, item, undefined, "explicit", maxOrder + 1 + index, { decision: decisions[index] }).transactions,
     );
     const success = await executeTransaction(
       transactions,

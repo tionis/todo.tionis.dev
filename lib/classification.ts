@@ -37,7 +37,8 @@ export interface ClassificationCandidate {
 export interface ClassificationResult {
   sublistId: string;
   confidence: number;
-  reason: "exact" | "tokens" | "fuzzy";
+  /** "model": decided by the list's chat model (lib/modelClassifier.ts), not the local classifier. */
+  reason: "exact" | "tokens" | "fuzzy" | "model";
   candidates: ClassificationCandidate[];
 }
 

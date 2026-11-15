@@ -13,9 +13,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { normalizeItemText } from "./classification";
 import { categoryLeafName } from "./categoryTree";
+import { buildChoiceRequest as buildSharedChoiceRequest, letterProbabilities } from "../shared/model-classifier.mjs";
 import {
-  JEV_INSTRUCTIONS,
-  buildJevRequest,
+  categoryOptions,
   trainingItems,
   type EvalContext,
   type EvalMethod,
@@ -133,44 +133,12 @@ function withThresholds(categoryId: string, confidence: number, thresholds: Thre
 export const DEFAULT_LLM_THRESHOLDS: Thresholds = { auto: 0.8, suggest: 0.5 };
 // On OpenRouter, gpt-4.1-nano is served by providers that drop logprobs; gpt-4o-mini by OpenAI keeps them.
 export const DEFAULT_LLM_MODEL = "openai/gpt-4o-mini";
-const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-/** The chat request: the same option descriptions as the Jev request, lettered. */
+/** The chat request: the categories as lettered options (shared/model-classifier.mjs, as the app sends it). */
 export function buildChoiceRequest(text: string, context: EvalContext, model: string, instructions?: string) {
-  const { request, keys } = buildJevRequest(text, context, model);
-  const criteria = Object.entries(request.questions.category.criteria).slice(0, LETTERS.length);
-  const letters = new Map<string, string>();
-  const lines = criteria.map(([key, description], index) => {
-    letters.set(LETTERS[index], keys.get(key)!);
-    return `${LETTERS[index]}) ${description}`;
-  });
-  return {
-    letters,
-    body: {
-      model,
-      temperature: 0,
-      max_tokens: 1,
-      logprobs: true,
-      top_logprobs: 20,
-      // OpenRouter: only route to providers that honour logprobs; other servers ignore it.
-      provider: { require_parameters: true },
-      usage: { include: true },
-      messages: [
-        {
-          role: "system",
-          content: [
-            JEV_INSTRUCTIONS,
-            instructions?.trim() ? `How this household sorts:\n${instructions.trim()}` : "",
-            "Answer with the letter of one option and nothing else.",
-          ].filter(Boolean).join("\n\n"),
-        },
-        // The options first and the item last: requests for one list then share their whole
-        // prefix, which local servers (llama.cpp) and hosted prompt caches can reuse.
-        { role: "user", content: `Options:\n${lines.join("\n")}\n\nItem: ${text}` },
-      ],
-    },
-  };
+  return buildSharedChoiceRequest({ model, item: text, options: categoryOptions(context), instructions });
 }
+
+export { letterProbabilities };
 
 interface ChatResponse {
   choices?: Array<{
@@ -178,23 +146,6 @@ interface ChatResponse {
     logprobs?: { content?: Array<{ token: string; logprob: number; top_logprobs?: Array<{ token: string; logprob: number }> }> } | null;
   }>;
   usage?: { cost?: number };
-}
-
-/** Probability per option letter from the first token's alternatives, renormalised. */
-export function letterProbabilities(response: ChatResponse, letters: Map<string, string>): Map<string, number> | null {
-  const first = response.choices?.[0]?.logprobs?.content?.[0];
-  if (!first) return null;
-  const candidates = first.top_logprobs?.length ? first.top_logprobs : [first];
-  const probabilities = new Map<string, number>();
-  for (const { token, logprob } of candidates) {
-    const letter = token.trim().replace(/[).:]$/, "").toUpperCase();
-    if (!letters.has(letter)) continue;
-    probabilities.set(letter, (probabilities.get(letter) ?? 0) + Math.exp(logprob));
-  }
-  const total = [...probabilities.values()].reduce((sum, value) => sum + value, 0);
-  if (!total) return null;
-  for (const [letter, value] of probabilities) probabilities.set(letter, value / total);
-  return probabilities;
 }
 
 export function llmChoiceMethod(options: ApiOptions, name = "llm"): EvalMethod & { stats: ModelStats } {

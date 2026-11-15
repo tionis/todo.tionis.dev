@@ -212,3 +212,36 @@ test('local adds survive saves and incoming changes overlapping them', async ({ 
     await expect(bob.page.getByText(text, { exact: true })).toBeVisible();
   }
 });
+
+test('with the model turned on, a new item goes where the model says', async ({ browser, request }) => {
+  const alice = await openList(await browser.newContext(), 'alice-e2e-session');
+  await alice.page.getByRole('button', { name: '+ Add Category' }).click();
+  await alice.page.getByPlaceholder('Category name').fill('Modellziel');
+  await alice.page.getByPlaceholder('Category name').press('Enter');
+  const targetId = await alice.page.getByRole('button', { name: 'Collapse Modellziel' }).getAttribute('aria-controls');
+
+  await alice.page.getByRole('button', { name: 'Settings' }).locator('visible=true').first().click();
+  await alice.page.getByLabel('Auto-sort new uncategorized todos').check();
+  await alice.page.getByLabel(/Sort with a language model/).check();
+  await alice.page.getByLabel(/How this list is sorted/).fill('Zahnpasta gehört ins Modellziel.');
+  await alice.page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(alice.page.getByRole('heading', { name: 'List Settings' })).toBeHidden();
+
+  const item = `Zahnpasta ${Date.now().toString(36)}`;
+  const input = alice.page.getByPlaceholder('What needs to be done?');
+  await input.fill(item);
+  await expect(alice.page.getByText("Sorted by the list's model when added")).toBeVisible();
+  await input.press('Enter');
+  await expect(alice.page.locator(`[id="${targetId}"]`).getByText(item, { exact: true })).toBeVisible();
+
+  const asked = await (await request.get('http://127.0.0.1:4175/last')).json();
+  expect(asked.messages[0].content).toContain('Zahnpasta gehört ins Modellziel.');
+  expect(asked.messages[1].content.endsWith(`Item: ${item}`)).toBe(true);
+
+  // Leave the shared list as the other tests expect it.
+  const reset = await request.patch('/api/lists/shared-list', {
+    headers: { Cookie: 'smart_todos_session=alice-e2e-session', Origin: ORIGIN },
+    data: { autoSortTodos: false, classifierModel: false },
+  });
+  expect(reset.ok()).toBe(true);
+});

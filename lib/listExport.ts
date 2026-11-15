@@ -44,6 +44,8 @@ export interface ExportableTodoList {
   autoSortTodos?: boolean | null;
   classifierAggressiveness?: string | null;
   classifierResetAt?: ExportDate;
+  classifierModel?: boolean | null;
+  classifierInstructions?: string | null;
   archivedAt?: ExportDate;
   createdAt?: ExportDate;
   updatedAt?: ExportDate;
@@ -73,6 +75,8 @@ export function buildListExport(todoList: ExportableTodoList, exportedAt = new D
       autoSortTodos: !!todoList.autoSortTodos,
       classifierAggressiveness: todoList.classifierAggressiveness ?? "normal",
       classifierResetAt: serializeDate(todoList.classifierResetAt),
+      classifierModel: !!todoList.classifierModel,
+      classifierInstructions: todoList.classifierInstructions || null,
       archivedAt: serializeDate(todoList.archivedAt),
       createdAt: serializeDate(todoList.createdAt),
       updatedAt: serializeDate(todoList.updatedAt),

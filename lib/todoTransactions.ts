@@ -6,6 +6,7 @@ import {
   type ClassificationResult,
 } from "./classification";
 import { db } from "./db";
+import type { ModelDecision } from "./modelClassifier";
 import { id } from "./id";
 
 interface TodoForDeletion {
@@ -67,7 +68,8 @@ export interface ClassifiableList {
 /**
  * Create a todo, sorted into a category by the list's classifier when auto-sort is on.
  * `order` places it explicitly, e.g. when adding several todos at once; `later` marks it as
- * restocking that isn't urgent.
+ * restocking that isn't urgent. `decision` is the list's chat model's answer
+ * (`classifyWithModel`), used instead of the local classifier when there is one.
  */
 export function createTodoTransactions(
   todoList: ClassifiableList,
@@ -75,25 +77,22 @@ export function createTodoTransactions(
   explicitSublistId?: string,
   explicitSource = "explicit",
   order?: number,
-  options: { later?: boolean } = {},
+  options: { later?: boolean; decision?: ModelDecision | null } = {},
 ): CreateTodoResult {
   const maxOrder = order !== undefined ? order - 1 : Math.max(0, ...todoList.todos.map((todo) => todo.order || 0));
-  const classification = explicitSublistId || !todoList.autoSortTodos
-    ? null
-    : classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications, {
-      aggressiveness: todoList.classifierAggressiveness,
-      resetAt: todoList.classifierResetAt,
-    });
-  const shouldAutoSort = shouldAutoSortClassification(classification, {
-    aggressiveness: todoList.classifierAggressiveness,
-    resetAt: todoList.classifierResetAt,
-  });
-  const suggestedClassification = !explicitSublistId && classification && !shouldAutoSort && shouldSuggestClassification(classification, {
-    aggressiveness: todoList.classifierAggressiveness,
-    resetAt: todoList.classifierResetAt,
-  })
-    ? classification
+  const classifierOptions = { aggressiveness: todoList.classifierAggressiveness, resetAt: todoList.classifierResetAt };
+  const sorting = !explicitSublistId && !!todoList.autoSortTodos;
+  const decision = sorting && options.decision && todoList.sublists.some((sublist) => sublist.id === options.decision!.sublistId)
+    ? options.decision
     : null;
+  const classification: ClassificationResult | null = !sorting
+    ? null
+    : decision
+      ? { sublistId: decision.sublistId, confidence: decision.confidence, reason: "model", candidates: [] }
+      : classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications, classifierOptions);
+  const shouldAutoSort = decision ? decision.auto : shouldAutoSortClassification(classification, classifierOptions);
+  const shouldSuggest = decision ? decision.suggest : shouldSuggestClassification(classification, classifierOptions);
+  const suggestedClassification = classification && !shouldAutoSort && shouldSuggest ? classification : null;
   const sublistId = explicitSublistId || (shouldAutoSort ? classification?.sublistId : undefined);
   const source = explicitSublistId ? explicitSource : "auto";
 

@@ -2,7 +2,7 @@ import { accessFor as calculateAccess } from "./access.mjs";
 import { mayExposeMemberIdentities } from "./privacy.mjs";
 
 // Row lookups and the JSON shapes the API and WebSocket metadata share.
-export function createListShaper({ database }) {
+export function createListShaper({ database, modelClassifierAvailable = false }) {
   function listRowById(id) {
     return database.prepare("SELECT * FROM lists WHERE id = ?").get(id);
   }
@@ -82,6 +82,10 @@ export function createListShaper({ database }) {
       autoSortTodos: !!row.auto_sort_todos,
       classifierAggressiveness: row.classifier_aggressiveness,
       classifierResetAt: row.classifier_reset_at,
+      classifierModel: !!row.classifier_model,
+      classifierInstructions: row.classifier_instructions || "",
+      // Whether this server can ask a chat model at all (CLASSIFIER_MODEL_* configured).
+      classifierModelAvailable: modelClassifierAvailable,
       archivedAt: row.archived_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

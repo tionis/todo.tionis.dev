@@ -31,6 +31,8 @@ export function SettingsPanel({
       ? todoList.classifierAggressiveness
       : "normal"
   );
+  const [classifierModel, setClassifierModel] = useState(!!todoList.classifierModel);
+  const [classifierInstructions, setClassifierInstructions] = useState<string>(todoList.classifierInstructions || "");
   const [name, setName] = useState(todoList.name);
   const [tagsInput, setTagsInput] = useState(formatListTags(parseListTags(todoList.tags)));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -46,6 +48,7 @@ export function SettingsPanel({
         hideCompleted,
         autoSortTodos,
         classifierAggressiveness,
+        ...(todoList.classifierModelAvailable ? { classifierModel, classifierInstructions } : {}),
         name,
         tags: formatListTags(tagInputToList(tagsInput)),
         updatedAt: new Date().toISOString()
@@ -173,6 +176,10 @@ export function SettingsPanel({
           setAutoSortTodos={setAutoSortTodos}
           classifierAggressiveness={classifierAggressiveness}
           setClassifierAggressiveness={setClassifierAggressiveness}
+          classifierModel={classifierModel}
+          setClassifierModel={setClassifierModel}
+          classifierInstructions={classifierInstructions}
+          setClassifierInstructions={setClassifierInstructions}
           onOpenDetails={() => setShowClassifierModal(true)}
         />
       </div>

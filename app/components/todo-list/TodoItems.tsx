@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { db } from '../../../lib/db';
 import { classifyTodoText, shouldAutoSortClassification } from '../../../lib/classification';
 import { createTodoTransactions } from '../../../lib/todoTransactions';
+import { classifyWithModel, modelSortingEnabled } from '../../../lib/modelClassifier';
 import { buildCategoryTree, categoryDisplayPath, flattenCategoryTree } from '../../../lib/categoryTree';
 import type { Todo, TodoList } from './types';
 
@@ -20,7 +21,10 @@ export function TodoForm({
   const [later, setLater] = useState(false);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const previewClassification = text.trim() && !selectedSublist && todoList.autoSortTodos
+  // With the list's model on, the model decides when the item is added; a local preview would
+  // promise a category the model may not pick.
+  const usesModel = modelSortingEnabled(todoList);
+  const previewClassification = text.trim() && !selectedSublist && todoList.autoSortTodos && !usesModel
     ? classifyTodoText(text, todoList.sublists, todoList.todos, todoList.todoClassifications, {
       aggressiveness: todoList.classifierAggressiveness,
       resetAt: todoList.classifierResetAt,
@@ -35,24 +39,27 @@ export function TodoForm({
   });
   const canSubmit = text.trim().length > 0;
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmedText = text.trim();
     if (!trimmedText) return;
-
-    const { transactions, classification, suggestedClassification } = createTodoTransactions(
-      todoList,
-      trimmedText,
-      selectedSublist || undefined,
-      "explicit-create",
-      undefined,
-      { later },
-    );
-    // Clear at once: saving waits for the upload, and whatever is typed meanwhile is the
-    // next item, which clearing on success would wipe.
+    const sublistId = selectedSublist || undefined;
+    const restock = later;
+    // Clear at once: asking the model and saving both take a moment, and whatever is typed
+    // meanwhile is the next item, which clearing on success would wipe.
     setText("");
     setLater(false);
     setError(null);
+
+    const decision = sublistId ? null : await classifyWithModel(todoList, trimmedText);
+    const { transactions, classification, suggestedClassification } = createTodoTransactions(
+      todoList,
+      trimmedText,
+      sublistId,
+      "explicit-create",
+      undefined,
+      { later: restock, decision },
+    );
 
     db.transact(transactions).then(() => {
       if (classification) {
@@ -123,6 +130,9 @@ export function TodoForm({
             Add
           </button>
         </div>
+        {usesModel && text.trim() && !selectedSublist && (
+          <div className="text-xs text-gray-600 dark:text-gray-400">Sorted by the list&apos;s model when added</div>
+        )}
         {previewSublist && (
           <div className="text-xs text-gray-600 dark:text-gray-400">
             {previewWillAutoSort ? "Will auto-sort" : "Suggested"}: {previewSublist.name}

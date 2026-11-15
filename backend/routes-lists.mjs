@@ -2,6 +2,15 @@ import { NOT_HANDLED } from "./route-result.mjs";
 import crypto from "node:crypto";
 import { AGGRESSIVENESS, decodeDocument, fail, json, optionalString, readJson, safeDecode } from "./http-helpers.mjs";
 
+import { MODEL_CLASSIFIER_LIMITS } from "../shared/model-classifier.mjs";
+
+/** The chat-model sorting settings: an on/off flag and the owner's steering text. */
+function invalidModelSettings(body) {
+  return (body.classifierModel !== undefined && typeof body.classifierModel !== "boolean")
+    || !optionalString(body.classifierInstructions)
+    || (typeof body.classifierInstructions === "string" && body.classifierInstructions.length > MODEL_CLASSIFIER_LIMITS.instructions);
+}
+
 const PERMISSIONS = new Set(["public-write", "public-read", "private-write", "private-read", "owner"]);
 
 // List collection and settings routes: list, create, read, update, delete.
@@ -41,7 +50,8 @@ export function createRoutesLists(ctx) {
       }
       if (!optionalString(body.tags) || !optionalString(body.classifierResetAt) || !optionalString(body.archivedAt)
         || !optionalString(body.createdAt) || (body.classifierAggressiveness !== undefined && !AGGRESSIVENESS.has(body.classifierAggressiveness))
-        || (typeof body.document !== "string" && body.document !== undefined && body.document !== null)) {
+        || (typeof body.document !== "string" && body.document !== undefined && body.document !== null)
+        || invalidModelSettings(body)) {
         return fail(response, 400, "Invalid list settings");
       }
       const idInUse = body.id && listRowById(body.id);
@@ -59,13 +69,14 @@ export function createRoutesLists(ctx) {
       const now = new Date().toISOString();
       database.prepare(`
         INSERT INTO lists (id, owner_id, name, slug, permission, tags, hide_completed,
-          auto_sort_todos, classifier_aggressiveness, classifier_reset_at, archived_at,
-          created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          auto_sort_todos, classifier_aggressiveness, classifier_reset_at, classifier_model,
+          classifier_instructions, archived_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, user.id, body.name.trim(), body.slug.trim(), permission, body.tags || null,
         body.hideCompleted ? 1 : 0, body.autoSortTodos ? 1 : 0,
         body.classifierAggressiveness || "normal", body.classifierResetAt || null,
+        body.classifierModel ? 1 : 0, body.classifierInstructions?.trim() || null,
         body.archivedAt || null, body.createdAt || now, now,
       );
       try {
@@ -100,7 +111,8 @@ export function createRoutesLists(ctx) {
       if (!accessFor(row, user).owner) return fail(response, 403, "Only the owner can change list settings");
       const body = await readJson(request);
       if (!optionalString(body.tags) || !optionalString(body.classifierResetAt) || !optionalString(body.archivedAt)
-        || (body.classifierAggressiveness !== undefined && !AGGRESSIVENESS.has(body.classifierAggressiveness))) {
+        || (body.classifierAggressiveness !== undefined && !AGGRESSIVENESS.has(body.classifierAggressiveness))
+        || invalidModelSettings(body)) {
         return fail(response, 400, "Invalid list settings");
       }
       const affectedUserIds = dashboardUserIdsForList(id);
@@ -112,14 +124,19 @@ export function createRoutesLists(ctx) {
         autoSortTodos: body.autoSortTodos === undefined ? row.auto_sort_todos : body.autoSortTodos ? 1 : 0,
         classifierAggressiveness: body.classifierAggressiveness || row.classifier_aggressiveness,
         classifierResetAt: body.classifierResetAt === undefined ? row.classifier_reset_at : body.classifierResetAt,
+        classifierModel: body.classifierModel === undefined ? row.classifier_model : body.classifierModel ? 1 : 0,
+        classifierInstructions: body.classifierInstructions === undefined
+          ? row.classifier_instructions
+          : body.classifierInstructions?.trim() || null,
         archivedAt: body.archivedAt === undefined ? row.archived_at : body.archivedAt,
       };
       database.prepare(`
         UPDATE lists SET name = ?, permission = ?, tags = ?, hide_completed = ?,
           auto_sort_todos = ?, classifier_aggressiveness = ?, classifier_reset_at = ?,
-          archived_at = ?, updated_at = ? WHERE id = ?
+          classifier_model = ?, classifier_instructions = ?, archived_at = ?, updated_at = ? WHERE id = ?
       `).run(next.name, next.permission, next.tags, next.hideCompleted, next.autoSortTodos,
-        next.classifierAggressiveness, next.classifierResetAt, next.archivedAt, new Date().toISOString(), id);
+        next.classifierAggressiveness, next.classifierResetAt, next.classifierModel,
+        next.classifierInstructions, next.archivedAt, new Date().toISOString(), id);
       realtime.refreshListConnections(id);
       realtime.notifyDashboardUsers(affectedUserIds);
       json(response, 200, { list: listShape(listRowById(id), user, true) });

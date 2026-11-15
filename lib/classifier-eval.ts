@@ -17,6 +17,7 @@ import {
   type ClassificationTodo,
 } from "./classification";
 import { categoryDisplayPath, categoryLeafName, categoryParentPath } from "./categoryTree";
+import { MODEL_CLASSIFIER_INSTRUCTIONS, MODEL_CLASSIFIER_LIMITS, describeOption } from "../shared/model-classifier.mjs";
 
 // ---------------------------------------------------------------------------------------------
 // Input
@@ -417,15 +418,8 @@ function withThresholds(prediction: { categoryId: string; confidence: number }, 
 // --- Jev (TypeSafe's decision model, through AIMLAPI) ------------------------------------------
 
 export const DEFAULT_JEV_THRESHOLDS: Thresholds = { auto: 0.8, suggest: 0.5 };
-const JEV_EXAMPLES_PER_CATEGORY = 8;
 
-export const JEV_INSTRUCTIONS = [
-  "This is an item on a household shopping list, usually in German.",
-  "The list is sorted by where things are found while shopping: each option is an aisle or",
-  "section of a supermarket, or a separate store for things the main store does not carry.",
-  "Pick the option where this item is most likely bought. Use the option's description and",
-  "the example items that were sorted there before.",
-].join(" ");
+export const JEV_INSTRUCTIONS = MODEL_CLASSIFIER_INSTRUCTIONS;
 
 export interface JevRequest {
   model: string;
@@ -453,26 +447,41 @@ export function jevOptionKeys(categories: EvalCategory[]): Map<string, string> {
   return keys;
 }
 
-export function buildJevRequest(text: string, context: EvalContext, model: string): { request: JevRequest; keys: Map<string, string> } {
-  const keys = jevOptionKeys(context.categories);
+/**
+ * The categories as a model sees them: own name, parent path, keywords, and the items most
+ * recently sorted into each (the same options the app sends, see lib/modelClassifier.ts).
+ */
+export function categoryOptions(context: EvalContext): ModelOption[] {
   const examples = new Map<string, string[]>();
   for (const item of [...trainingItems(context)].filter((entry) => entry.at > 0).sort((a, b) => b.at - a.at)) {
     const list = examples.get(item.categoryId) ?? [];
-    if (list.length < JEV_EXAMPLES_PER_CATEGORY && !list.includes(item.normalizedText)) list.push(item.normalizedText);
+    if (list.length < MODEL_CLASSIFIER_LIMITS.examples && !list.includes(item.normalizedText)) list.push(item.normalizedText);
     examples.set(item.categoryId, list);
   }
+  return context.categories.map((category) => ({
+    id: category.id,
+    name: (categoryLeafName(category) || category.id).slice(0, MODEL_CLASSIFIER_LIMITS.name),
+    parent: categoryParentPath(category).slice(0, MODEL_CLASSIFIER_LIMITS.parent) || undefined,
+    keywords: parseClassifierKeywords(category.classifierKeywords)
+      .map((keyword) => keyword.slice(0, MODEL_CLASSIFIER_LIMITS.word))
+      .slice(0, MODEL_CLASSIFIER_LIMITS.keywords),
+    examples: (examples.get(category.id) ?? []).map((example) => example.slice(0, MODEL_CLASSIFIER_LIMITS.word)),
+  }));
+}
+
+export interface ModelOption {
+  id: string;
+  name: string;
+  parent?: string;
+  keywords: string[];
+  examples: string[];
+}
+
+export function buildJevRequest(text: string, context: EvalContext, model: string): { request: JevRequest; keys: Map<string, string> } {
+  const keys = jevOptionKeys(context.categories);
+  const options = new Map(categoryOptions(context).map((option) => [option.id, option]));
   const criteria: Record<string, string> = {};
-  for (const [key, categoryId] of keys) {
-    const category = context.categories.find((entry) => entry.id === categoryId)!;
-    const parts = [`Section "${categoryLeafName(category)}"`];
-    const parent = categoryParentPath(category);
-    if (parent) parts.push(`in "${parent.split("/").join(" / ")}"`);
-    const keywords = parseClassifierKeywords(category.classifierKeywords);
-    if (keywords.length) parts.push(`typical items: ${keywords.join(", ")}`);
-    const seen = examples.get(categoryId) ?? [];
-    if (seen.length) parts.push(`sorted here before: ${seen.join(", ")}`);
-    criteria[key] = parts.join("; ");
-  }
+  for (const [key, categoryId] of keys) criteria[key] = describeOption(options.get(categoryId)!);
   return {
     request: { model, state: { item: text }, questions: { category: { type: "choice", instructions: JEV_INSTRUCTIONS, criteria } } },
     keys,

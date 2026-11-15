@@ -2,6 +2,7 @@
 
 import { getClassifierStatus, type ClassifierAggressiveness } from '../../../lib/classification';
 import type { TodoList } from './types';
+import { MODEL_CLASSIFIER_LIMITS } from '../../../shared/model-classifier.mjs';
 
 export function ClassifierSettingsRow({
   todoList,
@@ -9,6 +10,10 @@ export function ClassifierSettingsRow({
   setAutoSortTodos,
   classifierAggressiveness,
   setClassifierAggressiveness,
+  classifierModel,
+  setClassifierModel,
+  classifierInstructions,
+  setClassifierInstructions,
   onOpenDetails,
 }: {
   todoList: TodoList;
@@ -16,6 +21,10 @@ export function ClassifierSettingsRow({
   setAutoSortTodos: (enabled: boolean) => void;
   classifierAggressiveness: ClassifierAggressiveness;
   setClassifierAggressiveness: (value: ClassifierAggressiveness) => void;
+  classifierModel: boolean;
+  setClassifierModel: (enabled: boolean) => void;
+  classifierInstructions: string;
+  setClassifierInstructions: (value: string) => void;
   onOpenDetails: () => void;
 }) {
   const status = getClassifierStatus(todoList.sublists, todoList.todos, todoList.todoClassifications, {
@@ -64,6 +73,38 @@ export function ClassifierSettingsRow({
           <option value="aggressive">Aggressive</option>
         </select>
       </div>
+
+      {todoList.classifierModelAvailable && (
+        <div className="space-y-2">
+          <label className="flex items-start space-x-2">
+            <input
+              type="checkbox"
+              checked={classifierModel}
+              onChange={(e) => setClassifierModel(e.target.checked)}
+              className="rounded mt-0.5"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              Sort with a language model
+              <span className="block text-xs text-gray-500 dark:text-gray-400">
+                New items, the category names and recently sorted items are sent to the model this server is set up with. Offline or on errors the classifier above sorts.
+              </span>
+            </span>
+          </label>
+          {classifierModel && (
+            <label className="block">
+              <span className="block text-xs text-gray-600 dark:text-gray-400 mb-1">How this list is sorted (optional, for the model)</span>
+              <textarea
+                value={classifierInstructions}
+                onChange={(e) => setClassifierInstructions(e.target.value)}
+                maxLength={MODEL_CLASSIFIER_LIMITS.instructions}
+                rows={4}
+                placeholder={"We shop mostly at ALDI; EDEKA is for organic produce and Asian ingredients.\nHam and cheese go to Kühlwaren, not Fleisch."}
+                className="w-full text-sm px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
+            </label>
+          )}
+        </div>
+      )}
 
       <div className="flex justify-end">
         <button

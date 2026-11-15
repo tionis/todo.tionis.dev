@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { id } from "./id";
 import { normalizeItemText } from "./classification";
+import { MODEL_CLASSIFIER_LIMITS } from "../shared/model-classifier.mjs";
 import { categoryPath } from "./categoryTree";
 
 interface ListExportV1 {
@@ -69,6 +70,11 @@ export function buildListImportTransactions(value: unknown, ownerId: string, slu
       autoSortTodos: !!value.list.autoSortTodos,
       classifierAggressiveness: value.list.classifierAggressiveness || "normal",
       classifierResetAt: value.list.classifierResetAt ?? null,
+      // Optional (exports from before model sorting have neither).
+      ...(typeof value.list.classifierModel === "boolean" ? { classifierModel: value.list.classifierModel } : {}),
+      ...(typeof value.list.classifierInstructions === "string" && value.list.classifierInstructions.length <= MODEL_CLASSIFIER_LIMITS.instructions
+        ? { classifierInstructions: value.list.classifierInstructions }
+        : {}),
       createdAt: value.list.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }).link({ owner: ownerId }),

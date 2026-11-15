@@ -105,7 +105,7 @@ before accepting document data. In the UI, use `canUserWrite` / `canUserView` fr
 
 ## Classifier
 
-The classifier is local and deterministic; it never calls a remote model. Rules live in
+The local classifier is deterministic and never calls a remote model. Rules live in
 `lib/classification.ts`:
 
 - training prefers the latest checked or manually moved occurrence per normalized item text,
@@ -125,6 +125,15 @@ The classifier is local and deterministic; it never calls a remote model. Rules 
   bigram similarity, containment and compound expansion from known vocabulary
 
 Medium-confidence matches are suggestions; only high-confidence matches auto-sort.
+
+Optional model sorting (README "Sorting with a language model"): when the server has
+`CLASSIFIER_MODEL_*` and the list's `classifierModel` setting is on, `lib/modelClassifier.ts`
+asks `POST /api/lists/:id/classify` (`backend/routes-classifier.mjs`) before a new item is
+created and passes the answer to `createTodoTransactions` as `decision`; on any failure it
+returns null and the local classifier decides. The prompt is built in
+`shared/model-classifier.mjs`, which the evaluation uses too, so keep changes there measured
+with `npm run eval:classifier`. The list settings `classifierModel` and
+`classifierInstructions` live in SQLite (not the document), like the aggressiveness.
 
 ## Development notes
 

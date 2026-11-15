@@ -11,6 +11,7 @@ import { createFixedWindowRateLimiter, createPersistentRateLimiter } from "./rat
 import { createRealtime } from "./realtime.mjs";
 import { NOT_HANDLED } from "./route-result.mjs";
 import { createRoutesAuth } from "./routes-auth.mjs";
+import { createRoutesClassifier, MODEL_CACHE_TTL_MS } from "./routes-classifier.mjs";
 import { createRoutesContent } from "./routes-content.mjs";
 import { createRoutesLists } from "./routes-lists.mjs";
 import { createRoutesSharing } from "./routes-sharing.mjs";
@@ -40,7 +41,7 @@ const allowAnonymousWrites = createFixedWindowRateLimiter({ limit: 60, windowMs:
 const allowWrite = (user, address) => (user ? allowUserWrites(user.id) : allowAnonymousWrites(address));
 
 const { requestUser, requestAddress, setCors, requireUser, trustedMutation } = createRequestHelpers({ config, database });
-const shaper = createListShaper({ database });
+const shaper = createListShaper({ database, modelClassifierAvailable: !!config.modelClassifier });
 
 const server = http.createServer(async (request, response) => {
   applySecurityHeaders(response, config.publicUrl, scriptHashes);
@@ -81,6 +82,7 @@ const routeGroups = [
   createRoutesLists(routeContext),
   createRoutesContent(routeContext),
   createRoutesSharing(routeContext),
+  createRoutesClassifier(routeContext),
 ];
 
 async function handleApi(request, response, url) {
@@ -106,6 +108,7 @@ const cleanup = setInterval(() => {
   database.prepare("DELETE FROM oidc_states WHERE expires_at <= ?").run(now);
   database.prepare("DELETE FROM idempotency_records WHERE created_at <= ?").run(now - IDEMPOTENCY_TTL_MS);
   database.prepare("DELETE FROM rate_limits WHERE reset_at <= ?").run(now);
+  database.prepare("DELETE FROM model_classifier_cache WHERE created_at <= ?").run(now - MODEL_CACHE_TTL_MS);
 }, 60 * 60_000);
 cleanup.unref();
 
