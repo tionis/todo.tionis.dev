@@ -171,7 +171,11 @@ test('updates the real worker and migrates only its own caches', async ({ page, 
     await registration?.update();
   });
   await expect(page.getByText('Update Available')).toBeVisible();
+  // The new worker takes control and the page reloads (controllerchange); wait for that reload,
+  // or the heading below still matches the old page and the next evaluate dies mid-navigation.
+  const reloaded = page.waitForEvent('load');
   await page.getByRole('button', { name: 'Update Now' }).click();
+  await reloaded;
   await expect(page.getByRole('heading', { name: 'Smart Todos' })).toBeVisible();
   await expect.poll(() => page.evaluate(async () => (await caches.keys()).sort())).toEqual(
     expect.arrayContaining(['another-app-cache', 'smart-todos-precache-next']),
